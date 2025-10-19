@@ -24,6 +24,7 @@ struct child_record {
     struct semaphore load_sema;     // parent waits until child finishes loading
     struct semaphore exit_sema;     // parent waits until child exits
     struct list_elem elem_child;    // for representing in parent->children list
+    int refcnt;                     // to prevent a race condition where child and parent simulatenously free the same child record
 };
 
 #endif /* userprog/process.h */

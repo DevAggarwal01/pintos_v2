@@ -63,14 +63,13 @@ process_execute (const char *file_name) {
     rec->exited = false;
     rec->waited = false;
     rec->loaded = false;
+    rec->refcnt = 2;
     sema_init(&rec->start_sema, 0);
     sema_init(&rec->exit_sema, 0);
     sema_init(&rec->load_sema, 0);
     // register the record in global list and parent's child list
-    enum intr_level old_level = intr_disable();
     struct thread *parent = thread_current();
     list_push_back(&parent->children, &rec->elem_child);
-    intr_set_level(old_level);
     // fill start_info for the child thread
     info->fn_copy = fn_copy;
     info->rec = rec;
@@ -78,9 +77,7 @@ process_execute (const char *file_name) {
     // use a temporary kernel page to extract program name without affecting fn_copy
     char *prog_copy = palloc_get_page(0);
     if (prog_copy == NULL) {
-        enum intr_level old_level = intr_disable();
         list_remove(&rec->elem_child);
-        intr_set_level(old_level);
         palloc_free_page(info); 
         palloc_free_page(rec);
         palloc_free_page(fn_copy);
@@ -91,9 +88,7 @@ process_execute (const char *file_name) {
     char *save_ptr;
     char *program = strtok_r(prog_copy, " ", &save_ptr);
     if (program == NULL) {
-        enum intr_level old_level = intr_disable();
         list_remove(&rec->elem_child);
-        intr_set_level(old_level);
         palloc_free_page(info);
         palloc_free_page(rec);
         palloc_free_page(fn_copy);
@@ -105,9 +100,7 @@ process_execute (const char *file_name) {
     struct file *file = filesys_open(program);
     lock_release(&file_lock);
     if (file == NULL) {
-        enum intr_level old_level = intr_disable();
         list_remove(&rec->elem_child);
-        intr_set_level(old_level);
         palloc_free_page(rec);
         palloc_free_page(fn_copy);
         palloc_free_page(prog_copy);
@@ -117,9 +110,7 @@ process_execute (const char *file_name) {
     // create the child thread
     tid = thread_create(program, PRI_DEFAULT, start_process, info);
     if (tid == TID_ERROR) {
-        enum intr_level old_level = intr_disable();
         list_remove(&rec->elem_child);
-        intr_set_level(old_level);
         palloc_free_page(info);
         palloc_free_page(rec);
         palloc_free_page(fn_copy);
@@ -137,9 +128,7 @@ process_execute (const char *file_name) {
 
     // if the child failed to load, clean up and return error (-1)
     if (!rec->loaded) {
-        enum intr_level old_level = intr_disable();
         list_remove(&rec->elem_child);
-        intr_set_level(old_level);
         palloc_free_page(rec);
         return TID_ERROR;
     }
@@ -176,10 +165,8 @@ static void start_process (void *info){
     success = load(file_name, &if_.eip, &if_.esp);
     // tell parent whether load() succeeded so exec() can return -1 on failure
     if (rec != NULL) {
-        enum intr_level old = intr_disable();
         rec->loaded = success;
         sema_up(&rec->load_sema);
-        intr_set_level(old);
     }
     palloc_free_page (file_name);
     // if load failed, quit
@@ -209,7 +196,6 @@ int process_wait (tid_t child_tid) {
     tid_t my_tid = thread_tid();
     // find the child record for the given child TID
     struct child_record *rec = NULL;
-    enum intr_level old = intr_disable();
     for (struct list_elem *e = list_begin(&parent->children); e != list_end(&parent->children); e = list_next(e)) {
         struct child_record *c = list_entry(e, struct child_record, elem_child);
         if (c->child_tid == child_tid) {
@@ -219,22 +205,21 @@ int process_wait (tid_t child_tid) {
     }
     // if no such child or already waited, return -1
     if (rec == NULL || rec->waited) {
-        intr_set_level(old);
         return -1;
     }
     // mark as waited (only one successful wait allowed)
     rec->waited = true;
-    intr_set_level(old);
     // wait until child exits
     if(!rec->exited) {
         sema_down(&rec->exit_sema);
     }
     // capture exit status and remove/free the record
     int status = rec->exit_code;
-    enum intr_level old_level = intr_disable();
     list_remove(&rec->elem_child);
-    intr_set_level(old_level);
-    palloc_free_page(rec);
+    rec->refcnt--;
+    bool free_now = (rec->refcnt == 0);
+    // palloc_free_page(rec);
+    if (free_now) palloc_free_page(rec);
     // return the child's exit status 
     return status;
 }
@@ -247,12 +232,22 @@ void process_exit (void) {
     // record exit status in the corresponding child record, so parent can get it
     tid_t my_tid = thread_tid();
     // if child record exists, update it and wake up parent
-    if (cur->child_record && !cur->child_record->exited) {
-        enum intr_level old = intr_disable();
-        cur->child_record->exit_code = cur->exit_code;
-        cur->child_record->exited = true;
-        sema_up(&cur->child_record->exit_sema);
-        intr_set_level(old);
+    // if (cur->child_record && !cur->child_record->exited) {
+    //     cur->child_record->exit_code = cur->exit_code;
+    //     cur->child_record->exited = true;
+    //     sema_up(&cur->child_record->exit_sema);
+    // }
+    if (cur->child_record) {
+        struct child_record *rec = cur->child_record;
+        rec->exit_code = cur->exit_code;
+        if (!rec->exited) {
+            rec->exited = true;
+            sema_up(&rec->exit_sema);  // signal ONCE here
+        }
+        rec->refcnt--;                 // child drops its ref
+        bool free_now = (rec->refcnt == 0);
+        if (free_now) palloc_free_page(rec);
+        cur->child_record = NULL;      // don’t touch after this point
     }
     // close executable file, allow writes
     if (cur->exec_file != NULL) {
@@ -264,14 +259,11 @@ void process_exit (void) {
     }
     // close all open files and free file descriptors
     while(!list_empty(&cur->fds)) {
-        enum intr_level old = intr_disable();
         if (list_empty(&cur->fds)) {
-            intr_set_level(old);
             break;
         }
         struct list_elem *e = list_begin(&cur->fds);
         struct fd_entry *fd_entry = list_entry(e, struct fd_entry, elem);
-        intr_set_level(old);
         lock_acquire(&file_lock);
         file_close(fd_entry->f);
         lock_release(&file_lock);
