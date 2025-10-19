@@ -28,7 +28,7 @@ struct start_info {
     char *fn_copy;              // copy of the file name (command line)
     struct child_record *rec;   // child record for this process
     struct thread *parent;      // parent thread pointer
-};
+}; 
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
