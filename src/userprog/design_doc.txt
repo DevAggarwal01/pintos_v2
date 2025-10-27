@@ -171,6 +171,7 @@ struct child_record {
     struct semaphore load_sema;     // parent waits until child finishes loading
     struct semaphore exit_sema;     // parent waits until child exits
     struct list_elem elem_child;    // for representing in parent->children list
+    int refcnt;
 };
 
 PURPOSE: Helps each process keep track of any children processes it may have. The child_record 

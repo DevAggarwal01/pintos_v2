@@ -62,6 +62,9 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
     // create pointers for source and destination
     const uint8_t *user_src = user_src_;
     uint8_t *kernel_ptr = kernel_dst;
+    // TODO no need to copy byte by byte or allocate kernel space. just get the variable already from the stack
+    // TODO need to catch page faults in syscall handler instead of exception handler
+    
     // copy byte by byte, checking each address
     for (size_t i = 0; i < size; i++) {
         uint8_t *page = addr_to_page(user_src + i);

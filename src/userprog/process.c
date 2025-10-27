@@ -106,7 +106,9 @@ process_execute (const char *file_name) {
         palloc_free_page(prog_copy);
         return TID_ERROR;
     }
+    lock_acquire(&file_lock);
     file_close(file);
+    lock_release(&file_lock);
     // create the child thread
     tid = thread_create(program, PRI_DEFAULT, start_process, info);
     if (tid == TID_ERROR) {
@@ -653,6 +655,10 @@ static bool setup_stack (const char *cmdline, void **esp) {
     // push argument strings onto stack in reverse order
     char *arg_addrs[128]; // assume no more than 128 args; mentioned in project specifications
     for (int i = argc - 1; i >= 0; i--) {
+        if (sp - strlen(argv[i]) - 1 < (uint8_t *) PHYS_BASE - PGSIZE) {
+            palloc_free_page(cmd_copy);
+            return false; // not enough stack space
+        }
         sp -= strlen(argv[i]) + 1; // + 1 for null terminator
         memcpy(sp, argv[i], strlen(argv[i]) + 1);
         arg_addrs[i] = (char *) sp;
