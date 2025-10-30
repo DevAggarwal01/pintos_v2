@@ -24,6 +24,8 @@ typedef int tid_t;
 #define PRI_DEFAULT 31 /* Default priority. */
 #define PRI_MAX 63     /* Highest priority. */
 
+#define FD_MAX 128     /* Maximum number of file descriptors per process. */
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -88,8 +90,7 @@ struct child_record;
 // file descriptor entry structure
 struct fd_entry {
     int fd;                  // file descriptor number
-    struct file *f;          // pointer to the opened file   
-    struct list_elem elem;   // list element for inclusion in a list
+    struct file *f;          // pointer to the opened file
 };
 
 struct thread
@@ -111,8 +112,7 @@ struct thread
    struct list children;                   // list for this thread's children
    struct thread *parent;                  // pointer to parent thread
 
-   struct list fds;                        // list of file descriptor entries
-   int next_fd;                            // next available file descriptor number
+   struct fd_entry *fd_table[FD_MAX];      // file descriptor table. index is fd number
    struct file *exec_file;                 // deny writes to executable files
 
 #ifdef USERPROG

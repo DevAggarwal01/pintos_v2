@@ -234,11 +234,6 @@ void process_exit (void) {
     // record exit status in the corresponding child record, so parent can get it
     tid_t my_tid = thread_tid();
     // if child record exists, update it and wake up parent
-    // if (cur->child_record && !cur->child_record->exited) {
-    //     cur->child_record->exit_code = cur->exit_code;
-    //     cur->child_record->exited = true;
-    //     sema_up(&cur->child_record->exit_sema);
-    // }
     if (cur->child_record) {
         struct child_record *rec = cur->child_record;
         rec->exit_code = cur->exit_code;
@@ -259,18 +254,19 @@ void process_exit (void) {
         lock_release(&file_lock);
         cur->exec_file = NULL;
     }
-    // close all open files and free file descriptors
-    while(!list_empty(&cur->fds)) {
-        if (list_empty(&cur->fds)) {
-            break;
+
+    // close all open file descriptors by iterating over fd_table
+    for (int i = 0; i < FD_MAX; i++) {
+        struct fd_entry *fd_entry = cur->fd_table[i];
+        if (fd_entry != NULL) {
+            lock_acquire(&file_lock);
+            file_close(fd_entry->f);
+            lock_release(&file_lock);
+            palloc_free_page(fd_entry);
+            cur->fd_table[i] = NULL;
         }
-        struct list_elem *e = list_begin(&cur->fds);
-        struct fd_entry *fd_entry = list_entry(e, struct fd_entry, elem);
-        lock_acquire(&file_lock);
-        file_close(fd_entry->f);
-        lock_release(&file_lock);
-        remove_fd(fd_entry->fd);
     }
+
     /* Destroy the current process's page directory and switch back
         to the kernel-only page directory. */
     pd = cur->pagedir;

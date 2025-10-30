@@ -434,8 +434,6 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->parent = NULL;
   t->child_record = NULL;      // if you use this pointer
   t->exit_code = 0;
-  list_init(&t->fds); // initialize the file descriptor list
-  t->next_fd = 2; // 0 and 1 are reserved for stdin and stdout
   t->exec_file = NULL;
 
   old_level = intr_disable ();

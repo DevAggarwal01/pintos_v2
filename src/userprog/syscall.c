@@ -64,7 +64,7 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
     uint8_t *kernel_ptr = kernel_dst;
     // TODO no need to copy byte by byte or allocate kernel space. just get the variable already from the stack
     // TODO need to catch page faults in syscall handler instead of exception handler
-    
+
     // copy byte by byte, checking each address
     for (size_t i = 0; i < size; i++) {
         uint8_t *page = addr_to_page(user_src + i);
@@ -109,25 +109,35 @@ static char *copy_string(const char *user_str) {
     return NULL;
 }
 
-
 /**
  * Creates a new file descriptor entry for the given file in the current thread.
  * Returns pointer to the new file descriptor entry on success, NULL on failure.
+ *
+ * This implementation uses the per-thread fixed-size fd_table in struct thread,
+ * finds the lowest available fd (reusing freed descriptors), and never assigns
+ * an fd >= FD_MAX (127).
  */
 static struct fd_entry *create_fd(struct file *file) {
-    // get the current thread
     struct thread *t = thread_current();
-    // allocate a page for a new file descriptor entry
-    struct fd_entry *fd_entry = palloc_get_page(0);
-    if (fd_entry == NULL) {
+    // check for null file
+    if (file == NULL) {
         return NULL;
     }
-    // initialize the entry and add it to the thread's file descriptor list
-    fd_entry->fd = t->next_fd++;
-    fd_entry->f = file;
-    list_push_back(&t->fds, &fd_entry->elem);
-    // return the new file descriptor entry
-    return fd_entry;
+    // find lowest available fd (start at 2 because you do not allocate 0/1 (stdin/stdout))
+    for (int i = 2; i < FD_MAX; i++) {
+        if (t->fd_table[i] == NULL) {
+            struct fd_entry *fd_entry = palloc_get_page(0);
+            if (fd_entry == NULL) {
+                return NULL;
+            }
+            fd_entry->fd = i;
+            fd_entry->f = file;
+            t->fd_table[i] = fd_entry;
+            return fd_entry;
+        }
+    }
+    // no free descriptors available; thread's fd_table is full, so return NULL
+    return NULL;
 }
 
 /**
@@ -135,19 +145,13 @@ static struct fd_entry *create_fd(struct file *file) {
  * Returns pointer to the file descriptor entry on success, NULL if not found.
  */
 static struct fd_entry *find_fd(int fd) {
-    // get the current thread
-    struct thread *t = thread_current();
-    struct list_elem *e;
-    // search the thread's file descriptor list for the given fd
-    for (e = list_begin(&t->fds); e != list_end(&t->fds); e = list_next(e)) {
-        struct fd_entry *fd_entry = list_entry(e, struct fd_entry, elem);
-        if (fd_entry->fd == fd) {
-            // found the file descriptor entry, so return it
-            return fd_entry;
-        }
+    // check for valid file descriptor range
+    if (fd < 0 || fd >= FD_MAX) {
+        return NULL;
     }
-    // not found, return NULL
-    return NULL;
+    // get current thread and return the fd entry
+    struct thread *t = thread_current();
+    return t->fd_table[fd];
 }
 
 /**
@@ -155,21 +159,19 @@ static struct fd_entry *find_fd(int fd) {
  * Does nothing if the fd is not found.
  */
 void remove_fd(int fd) {
-    // get the current thread
+    // check for valid file descriptor range
+    if (fd < 0 || fd >= FD_MAX) {
+        return;
+    }
+    // get current thread and fd entry
     struct thread *t = thread_current();
-    struct list_elem *e;
-    // search the thread's file descriptor list for the given fd
-    for (e = list_begin(&t->fds); e != list_end(&t->fds); e = list_next(e)) {
-        struct fd_entry *fd_entry = list_entry(e, struct fd_entry, elem);
-        if (fd_entry->fd == fd) {
-            // found the file descriptor entry, so remove and free it
-            list_remove(e);
-            palloc_free_page(fd_entry);
-            return;
-        }
+    struct fd_entry *fd_entry = t->fd_table[fd];
+    // if found, remove from table and free the entry
+    if (fd_entry != NULL) {
+        t->fd_table[fd] = NULL;
+        palloc_free_page(fd_entry);
     }
 }
-
 
 /**
  * The main system call handler function.
@@ -190,59 +192,44 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
 
     // ALL SYSTEM CALLS HANDLED HERE
     switch (syscall_num) {
-        // Case 1: for the HALT system call
         case SYS_HALT: {
-            // directly shut down the system
             shutdown_power_off();
             break;
         }
-        // Case 2: for the EXIT system call
         case SYS_EXIT: {
-            // get the exit status argument
             int status;
             if (!copy_data(&status, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
-            // use the helper method to exit the process
             system_exit(status);
             break;
         }
-        // Case 3: for the EXEC system call
         case SYS_EXEC: {
-            // get the command line argument; if invalid, exit with -1
             const char *cmd_linePtr;
             if (!copy_data(&cmd_linePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
             }
-            // check for null
             if (cmd_linePtr == NULL) {
                 system_exit(-1);
             }
-            // get a kernel copy of the command line string
             char *cmd_line = copy_string((char *)cmd_linePtr);
             if (cmd_line == NULL) {
                 system_exit(-1);
             }
-            // execute the command line and return the new process's TID
             f->eax = process_execute(cmd_line);
             palloc_free_page(cmd_line);
             break;
         }
-        // Case 4: for the WAIT system call
         case SYS_WAIT: {
-            // get the TID argument
             tid_t tid;
             if (!copy_data(&tid, sp + 4, sizeof(tid_t))) {
                 f->eax = -1;
                 break;
             }
-            // call process_wait method and return its result
             f->eax = process_wait(tid);
             break;
         }
-        // Case 5: for the CREATE system call
         case SYS_CREATE: {
-            // get the file name and initial size arguments
             const char *filePtr;
             unsigned initial_size;
             if (!copy_data(&filePtr, sp + 4, sizeof(const char *))) {
@@ -254,27 +241,22 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (!copy_data(&initial_size, sp + 8, sizeof(unsigned))) {
                 system_exit(-1);
             }
-            // copy the file name string from user to kernel space
             char *file = copy_string((char *)filePtr);
             if (file == NULL) {
                 system_exit(-1);
             }
-            // check for empty file name
             if (file[0] == '\0') {
                 palloc_free_page(file);
                 f->eax = false;
                 return;
             }
-            // create the file and return the result (lock around file system call)
             lock_acquire(&file_lock);
             f->eax = filesys_create(file, initial_size);
             lock_release(&file_lock);
             palloc_free_page(file);
             break;
         }
-        // Case 6: for the REMOVE system call
         case SYS_REMOVE: {
-            // get the file name argument
             const char *filePtr;
             if (!copy_data(&filePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
@@ -282,27 +264,22 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (filePtr == NULL) {
                 system_exit(-1);
             }
-            // copy the file name string from user to kernel space
             char *file = copy_string((char *)filePtr);
             if (file == NULL) {
                 system_exit(-1);
             }
-            // check for empty file name
             if (file[0] == '\0') {
                 palloc_free_page(file);
                 f->eax = false;
                 return;
             }
-            // remove the file and return the result (lock around file system call)
             lock_acquire(&file_lock);
             f->eax = filesys_remove(file);
             lock_release(&file_lock);
             palloc_free_page(file);
             break;
         }
-        // Case 7: for the OPEN system call
         case SYS_OPEN: {
-            // get the file name argument
             const char *fileNamePtr;
             if (!copy_data(&fileNamePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
@@ -310,18 +287,15 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (fileNamePtr == NULL) {
                 system_exit(-1);
             }
-            // copy the file name string from user to kernel space
             char *fileName = copy_string((char *)fileNamePtr);
             if (fileName == NULL) {
                 system_exit(-1);
             }
-            // check for empty file name
             if (fileName[0] == '\0') {
                 palloc_free_page(fileName);
                 f->eax = -1;
                 return;
             }
-            // open the file (lock around file system call)
             lock_acquire(&file_lock);
             struct file *file = filesys_open(fileName);
             lock_release(&file_lock);
@@ -330,42 +304,34 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 f->eax = -1;
                 break;
             }
-            // create a new file descriptor entry for the opened file
             struct fd_entry *fd = create_fd(file);
             if (fd == NULL) {
-                // failed to create fd entry; close file and return -1
+                // could not create fd entry, close file and return -1
                 f->eax = -1;
                 file_close(file);
                 palloc_free_page(fileName);
                 break;
             }
-            // return the new file descriptor number
             f->eax = fd->fd;
             palloc_free_page(fileName);
             break;
         }
-        // Case 8: for the CLOSE system call
         case SYS_FILESIZE: {
-            // get the file descriptor argument
             int fd;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
-            // find the file descriptor entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
-            // get the file size (lock around file system call)
             lock_acquire(&file_lock);
             f->eax = file_length(fd_entry->f);
             lock_release(&file_lock);
             break;
         }
-        // Case 9: for the READ system call
         case SYS_READ: {
-            // get the arguments: fd, buffer, size
             int fd;
             void *buffer;
             unsigned size;
@@ -381,26 +347,20 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (buffer == NULL) {
                 system_exit(-1);
             }
-            // validate each page of buffer to be read into
             char *buf = (char *)buffer;
             unsigned remaining = size;
             while (remaining > 0) {
-                // check that the page is valid
                 if (addr_to_page(buf) == NULL) {
                     system_exit(-1);
                 }
-                // move to next page
                 size_t offset = (uintptr_t)buf & (PGSIZE - 1);
-                // calculate the size of the chunk to read
                 size_t chunk = PGSIZE - offset;
-                // limit chunk to remaining size
                 if (chunk > remaining) {
                     chunk = remaining;
                 }
                 buf += chunk;
                 remaining -= chunk;
             }
-            // handle reading from keyboard or file
             if (fd == 0) {
                 for (unsigned i = 0; i < size; i++) {
                     ((char *)buffer)[i] = input_getc();
@@ -408,21 +368,17 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 f->eax = size;
                 break;
             }
-            // find the file descriptor entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
-            // read from the file (lock around file system call)
             lock_acquire(&file_lock);
             f->eax = file_read(fd_entry->f, buffer, size);
             lock_release(&file_lock);
             break;
         }
-        // Case 10: for the WRITE system call
         case SYS_WRITE: {
-            // get the arguments: fd, buffer, size
             int fd;
             const void *buffer;
             unsigned size;
@@ -438,19 +394,14 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (buffer == NULL) {
                 system_exit(-1);
             }
-            // validate each page of buffer to be written from
             const char *bufw = (const char *)buffer;
             unsigned remainingw = size;
             while (remainingw > 0) {
-                // check that the page is valid
                 if (addr_to_page(bufw) == NULL) {
                     system_exit(-1);
                 }
-                // move to next page
                 size_t offset = (uintptr_t)bufw & (PGSIZE - 1);
-                // calculate the size of the chunk to write
                 size_t chunk = PGSIZE - offset;
-                // limit chunk to remaining size
                 if (chunk > remainingw) {
                     chunk = remainingw;
                 }
@@ -458,25 +409,20 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 remainingw -= chunk;
             }
             if (fd == 1) {
-                // handle writing to console or file
                 putbuf(buffer, size);
                 f->eax = size;
                 break;
             } else if (fd == 0) {
-                // handle writing to keyboard (not allowed)
                 f->eax = -1;
                 break;
             } else {
-                // find the file descriptor entry
                 struct fd_entry *fd_entry = find_fd(fd);
                 if (fd_entry == NULL) {
                     f->eax = -1;
                     break;
                 }
-                // write to the file (lock around file system call)
                 lock_acquire(&file_lock);
                 int written = 0;
-                // write in a loop until all bytes are written
                 while (written < (int)size) {
                     int needWrite = size - written;
                     int wrote = file_write(fd_entry->f, (const uint8_t *)buffer + written, needWrite);
@@ -490,9 +436,7 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 break;
             }
         }
-        // Case 11: for the SEEK system call
         case SYS_SEEK: {
-            // get the arguments: fd, position
             int fd;
             unsigned position;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
@@ -501,50 +445,40 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (!copy_data(&position, sp + 8, sizeof(unsigned))) {
                 system_exit(-1);
             }
-            // find the file descriptor entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 system_exit(-1);
             }
-            // seek to the position in the file (lock around file system call)
             lock_acquire(&file_lock);
             file_seek(fd_entry->f, position);
             lock_release(&file_lock);
             break;
         }
-        // Case 12: for the TELL system call
         case SYS_TELL: {
-            // get the fd argument
             int fd;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
-            // find the file descriptor entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
-            // tell the current position in the file (lock around file system call)
             lock_acquire(&file_lock);
             f->eax = file_tell(fd_entry->f);
             lock_release(&file_lock);
             break;
         }
-        // Case 13: for the CLOSE system call
         case SYS_CLOSE: {
-            // get the fd argument
             int fd;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
-            // find the file descriptor entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
-            // close the file and remove the fd entry (lock around file system call)
             lock_acquire(&file_lock);
             file_close(fd_entry->f);
             lock_release(&file_lock);
@@ -552,7 +486,6 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             break;
         }
         default:
-            // unknown syscall number
             system_exit(-1);
     }
 }
