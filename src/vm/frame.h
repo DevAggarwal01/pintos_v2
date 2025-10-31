@@ -8,7 +8,7 @@
 // structure to store frame information
 struct frame {
     struct thread *owner;           // thread that owns this frame
-    void *kpage_addr;               // kernel page address
+    void* kpage;                    // kernel page address
     void* user_vaddr;               // user virtual address mapped to this frame
     struct spt_entry *spte;         // supplemental page table entry associated with this frame
     struct hash_elem hash_elem;     // hash table element for frame table
@@ -22,5 +22,4 @@ void* frame_alloc(void* user_vaddr, enum palloc_flags flags);
 // free a given frame
 void frame_free(void* frame);
 // evict a frame using the clock algorithm
-// should return the kernel page address of the evicted frame
-void *frame_evict(void* frame);
+void* frame_evict(void* frame);

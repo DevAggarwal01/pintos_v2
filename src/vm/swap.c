@@ -1,11 +1,8 @@
-#include "vm/swap.h"
 #include "devices/block.h"
+#include "lib/kernel/bitmap.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "threads/palloc.h"
-#include "threads/thread.h"
-#include <debug.h>
-#include <stdio.h>
+#include "vm/swap.h"
 
 /* 
  * --------------------------------------------------------------------------------------------

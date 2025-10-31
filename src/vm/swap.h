@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include <stdbool.h>
-#include "lib/kernel/bitmap.h"
 #include <stddef.h>
 
 // initializes the swap system

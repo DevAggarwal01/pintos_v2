@@ -6,13 +6,13 @@ struct lock frame_lock;          // lock for frame table and clock list
 
 unsigned frame_hash_func(struct hash_elem *e, void *aux) {
     struct frame *f = hash_entry(e, struct frame, hash_elem);
-    return hash_bytes(&f->kpage_addr, sizeof(f->kpage_addr));
+    return hash_bytes(&f->kpage, sizeof(f->kpage));
 }
 
 bool frame_less_func(struct hash_elem *a, struct hash_elem *b, void *aux) {
     struct frame *fa = hash_entry(a, struct frame, hash_elem);
     struct frame *fb = hash_entry(b, struct frame, hash_elem);
-    return fa->kpage_addr < fb->kpage_addr;
+    return fa->kpage < fb->kpage;
 }
 
 void frame_init(void) {
@@ -41,7 +41,7 @@ void *frame_alloc(void *user_vaddr, enum palloc_flags flags) {
     }
 
     new_frame->owner = thread_current();
-    new_frame->kpage_addr = kpage;
+    new_frame->kpage = kpage;
     new_frame->user_vaddr = user_vaddr;
     new_frame->spte = NULL;
 
@@ -56,14 +56,14 @@ void frame_free(void* frame) {
     lock_acquire(&frame_lock);
     // look up the frame in the hash table
     struct frame f_lookup;
-    f_lookup.kpage_addr = frame;
+    f_lookup.kpage = frame;
     struct hash_elem *he = hash_find(&frame_table, &f_lookup.hash_elem);
     // if found, remove from hash table and free resources
     if (he != NULL) {
         struct frame *f = hash_entry(he, struct frame, hash_elem);
         hash_delete(&frame_table, he);
         list_remove(&f->clock_elem);
-        palloc_free_page(f->kpage_addr);
+        palloc_free_page(f->kpage);
         free(f);
     }
     lock_release(&frame_lock);
