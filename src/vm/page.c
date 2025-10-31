@@ -154,7 +154,7 @@ bool spt_load_page (struct sup_page *sp) {
         memset(kpage, 0, PGSIZE);
     }
     // add the page to the process's page directory
-    if (!pagedir_set_page (t->pagedir, sp->upage, kpage, sp->writable)){
+    if (!pagedir_set_page(t->pagedir, sp->upage, kpage, sp->writable)){
         // failed to map page, free frame and return false
         frame_free (f);
         return false;
