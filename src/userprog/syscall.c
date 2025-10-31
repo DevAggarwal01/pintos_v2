@@ -111,8 +111,6 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
 //     palloc_free_page(buffer);
 //     return NULL;
 // }
-
-
 static bool copy_string(char *dst, const char *usrc)
 {
     if (usrc == NULL || !is_user_vaddr(usrc))
