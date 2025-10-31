@@ -16,6 +16,7 @@ static void syscall_handler (struct intr_frame *);
 // lock for file system operations
 struct lock file_lock;
 
+
 /**
  * Initializes the system call system by setting the system call interrupt gate
  * The method be called exactly once during kernel startup, before any user process.
@@ -62,18 +63,19 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
     // create pointers for source and destination
     const uint8_t *user_src = user_src_;
     uint8_t *kernel_ptr = kernel_dst;
+    uint8_t *end = user_src + size;
     // TODO no need to copy byte by byte or allocate kernel space. just get the variable already from the stack
     // TODO need to catch page faults in syscall handler instead of exception handler
 
+    if (user_src == NULL || !is_user_vaddr(user_src) || !is_user_vaddr(end - 1))
+        return false;
+
     // copy byte by byte, checking each address
-    for (size_t i = 0; i < size; i++) {
-        uint8_t *page = addr_to_page(user_src + i);
-        if (page == NULL) {
-            // invalid address, so failed to copy
+    for (uint8_t *p = pg_round_down(user_src); p < end; p += PGSIZE) {
+        if (addr_to_page(p) == NULL)
             return false;
-        }
-        kernel_ptr[i] = *(user_src + i);
     }
+    memcpy(kernel_dst, user_src, size);
     // successfully copied all bytes
     return true;
 }
@@ -82,31 +84,52 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
  * Copies a null-terminated string from user space to kernel space.
  * Returns pointer to kernel string on success, NULL on failure.
  */
-static char *copy_string(const char *user_str) {
-    // check for null and that the address is in user address range
-    if (user_str == NULL || !is_user_vaddr(user_str)) {
-        return NULL;
-    }
-    // allocate a page for the string buffer
-    char *buffer = palloc_get_page(0);
-    if (buffer == NULL) {
-        return NULL;
-    }
-    // copy byte by byte until null terminator or page size limit
-    for (size_t i = 0; i < PGSIZE; i++) {
-        uint8_t *page = addr_to_page(user_str + i);
-        if (page == NULL) {
-            palloc_free_page(buffer);
-            return NULL;
-        }
-        buffer[i] = *(user_str + i);
-        if (buffer[i] == '\0') {
-            return buffer;
-        }
-    }
-    // string too long (no null terminator within page)
-    palloc_free_page(buffer);
-    return NULL;
+// static char *copy_string(const char *user_str) {
+//     // check for null and that the address is in user address range
+//     if (user_str == NULL || !is_user_vaddr(user_str)) {
+//         return NULL;
+//     }
+//     // allocate a page for the string buffer
+//     char *buffer = palloc_get_page(0);
+    
+//     if (buffer == NULL) {
+//         return NULL;
+//     }
+//     // copy byte by byte until null terminator or page size limit
+//     for (size_t i = 0; i < PGSIZE; i++) {
+//         uint8_t *page = addr_to_page(user_str + i);
+//         if (page == NULL) {
+//             palloc_free_page(buffer);
+//             return NULL;
+//         }
+//         buffer[i] = *(user_str + i);
+//         if (buffer[i] == '\0') {
+//             return buffer;
+//         }
+//     }
+//     // string too long (no null terminator within page)
+//     palloc_free_page(buffer);
+//     return NULL;
+// }
+
+
+static bool copy_string(char *dst, const char *usrc)
+{
+    if (usrc == NULL || !is_user_vaddr(usrc))
+        return false;
+    // 128 B limit for args
+    for (size_t i = 0; i < 128; i++) {
+        if (addr_to_page(usrc + i) == NULL)
+            system_exit(-1);
+
+        char c = usrc[i];
+        dst[i] = c;
+        if (c == '\0')
+            return true;
+    } 
+    
+    // no terminator within limit
+    return false;
 }
 
 /**
@@ -212,12 +235,16 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (cmd_linePtr == NULL) {
                 system_exit(-1);
             }
-            char *cmd_line = copy_string((char *)cmd_linePtr);
+            // char *cmd_line = copy_string((char *)cmd_linePtr);
+            char cmd_line[128];
+            if(!copy_string(cmd_line, cmd_linePtr)) {
+                system_exit(-1);
+            }
             if (cmd_line == NULL) {
                 system_exit(-1);
             }
             f->eax = process_execute(cmd_line);
-            palloc_free_page(cmd_line);
+            // palloc_free_page(cmd_line);
             break;
         }
         case SYS_WAIT: {
@@ -241,19 +268,24 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (!copy_data(&initial_size, sp + 8, sizeof(unsigned))) {
                 system_exit(-1);
             }
-            char *file = copy_string((char *)filePtr);
+            // char *file = copy_string((char *)filePtr);
+            char file[128];
+            if(!copy_string(file, filePtr)) {
+                f->eax = false;
+                break;
+            }
             if (file == NULL) {
                 system_exit(-1);
             }
             if (file[0] == '\0') {
-                palloc_free_page(file);
+                // palloc_free_page(file);
                 f->eax = false;
                 return;
             }
             lock_acquire(&file_lock);
             f->eax = filesys_create(file, initial_size);
             lock_release(&file_lock);
-            palloc_free_page(file);
+            // palloc_free_page(file);
             break;
         }
         case SYS_REMOVE: {
@@ -264,19 +296,23 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (filePtr == NULL) {
                 system_exit(-1);
             }
-            char *file = copy_string((char *)filePtr);
+            // char *file = copy_string((char *)filePtr);
+            char file[128];
+            if(!copy_string(file, filePtr)) {
+                system_exit(-1);
+            }
             if (file == NULL) {
                 system_exit(-1);
             }
             if (file[0] == '\0') {
-                palloc_free_page(file);
+                // palloc_free_page(file);
                 f->eax = false;
                 return;
             }
             lock_acquire(&file_lock);
             f->eax = filesys_remove(file);
             lock_release(&file_lock);
-            palloc_free_page(file);
+            // palloc_free_page(file);
             break;
         }
         case SYS_OPEN: {
@@ -287,12 +323,16 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (fileNamePtr == NULL) {
                 system_exit(-1);
             }
-            char *fileName = copy_string((char *)fileNamePtr);
+            // char *fileName = copy_string((char *)fileNamePtr);
+            char fileName[128];
+            if(!copy_string(fileName, fileNamePtr)) {
+                system_exit(-1);
+            }
             if (fileName == NULL) {
                 system_exit(-1);
             }
             if (fileName[0] == '\0') {
-                palloc_free_page(fileName);
+                // palloc_free_page(fileName);
                 f->eax = -1;
                 return;
             }
@@ -300,7 +340,7 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             struct file *file = filesys_open(fileName);
             lock_release(&file_lock);
             if (file == NULL) {
-                palloc_free_page(fileName);
+                // palloc_free_page(fileName);
                 f->eax = -1;
                 break;
             }
@@ -309,11 +349,11 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 // could not create fd entry, close file and return -1
                 f->eax = -1;
                 file_close(file);
-                palloc_free_page(fileName);
+                // palloc_free_page(fileName);
                 break;
             }
             f->eax = fd->fd;
-            palloc_free_page(fileName);
+            // palloc_free_page(fileName);
             break;
         }
         case SYS_FILESIZE: {
