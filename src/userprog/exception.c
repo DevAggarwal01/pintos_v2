@@ -84,7 +84,9 @@ static void kill (struct intr_frame *f)
         printf ("%s: dying due to interrupt %#04x (%s).\n", thread_name (),
                 f->vec_no, intr_name (f->vec_no));
         intr_dump_frame (f);
-        thread_exit ();
+      //   thread_exit ();
+      system_exit(-1);  // MODIFIED LINE: cleanly terminate the process
+      break; 
 
       case SEL_KCSEG:
         /* Kernel's code segment, which indicates a kernel bug.
@@ -146,9 +148,9 @@ static void page_fault (struct intr_frame *f)
     /* THE FOLLOWING CODE IS A MODIFICATION MADE TO THE ORIGINAL CODE*/
     // -----START MODIFICATION-----
     // user process made a bad memory access — cleanly terminate it (do not kill the process)
-    if (user) {
-        system_exit(-1);
-    }
+   //  if (user) {
+   //      system_exit(-1);
+   //  }
     // -----END MODIFICATION-----
 
     /* To implement virtual memory, delete the rest of the function
