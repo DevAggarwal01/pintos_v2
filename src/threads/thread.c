@@ -14,6 +14,8 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#include "vm/page.h"
+#include "vm/frame.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -178,6 +180,8 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+  spt_init(&initial_thread->spt);
+
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
   kf->eip = NULL;
@@ -268,6 +272,7 @@ void thread_exit (void)
 
 #ifdef USERPROG
   process_exit ();
+  spt_destroy(&thread_current()->spt);
 #endif
 
   /* Remove thread from all threads list, set our status to dying,

@@ -25,7 +25,7 @@ void *frame_alloc(void *user_vaddr, enum palloc_flags flags) {
     void *kpage = palloc_get_page(flags);
     if (kpage == NULL) {
         // TODO need to implement frame_evict instead of panicking
-        PANIC("No free frames available, need to evict a frame TODO");
+        // PANIC("No free frames available, need to evict a frame TODO");
 
         // evict a frame so that kpage can make use of physical address returned by frame_evict
         kpage = frame_evict(NULL);

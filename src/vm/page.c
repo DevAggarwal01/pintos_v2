@@ -23,8 +23,7 @@ static unsigned sup_page_hash (const struct hash_elem *e, void *aux UNUSED) {
  * Comparison function for supplemental page table entries.
  * Compares based on user page addresses.
  */
-static bool sup_page_less (const struct hash_elem *a, const struct hash_elem *b,
-                           void *aux UNUSED) {
+static bool sup_page_less (const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED) {
     const struct sup_page *pa = hash_entry(a, struct sup_page, elem);
     const struct sup_page *pb = hash_entry(b, struct sup_page, elem);
     return pa->upage < pb->upage;
@@ -133,7 +132,7 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
  */
 bool spt_load_page (struct sup_page *sp) {
     // get current thread and allocate a frame for the page
-    struct thread *t = thread_current ();
+    struct thread *t = thread_current();
     struct frame *f = frame_alloc(sp->upage, PAL_USER);
     if (f == NULL) {
         // frame allocation failed

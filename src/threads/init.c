@@ -23,6 +23,7 @@
 #include "threads/pte.h"
 #include "threads/thread.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
@@ -119,6 +120,7 @@ int main (void)
   serial_init_queue ();
   timer_calibrate ();
   frame_init ();
+  spt_init(&thread_current()->spt);
 
 #ifdef FILESYS
   /* Initialize file system. */
