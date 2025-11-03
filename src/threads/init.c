@@ -120,7 +120,6 @@ int main (void)
   serial_init_queue ();
   timer_calibrate ();
   frame_init ();
-  spt_init(&thread_current()->spt);
 
 #ifdef FILESYS
   /* Initialize file system. */

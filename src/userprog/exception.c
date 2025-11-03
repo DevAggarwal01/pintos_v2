@@ -5,6 +5,8 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "vm/page.h"
+#include "threads/vaddr.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -145,8 +147,29 @@ static void page_fault (struct intr_frame *f)
     user = (f->error_code & PF_U) != 0;
 
 
+
     /* THE FOLLOWING CODE IS A MODIFICATION MADE TO THE ORIGINAL CODE*/
     // -----START MODIFICATION-----
+    // kernel address 
+    if(!is_user_vaddr(fault_addr) || fault_addr == NULL || !not_present) {
+       printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
+            not_present ? "not present" : "rights violation",
+            write ? "writing" : "reading", user ? "user" : "kernel");
+
+      printf ("There is no crying in Pintos!\n");
+
+      kill (f);
+    }
+
+    void *upage = pg_round_down(fault_addr);
+    struct thread *t = thread_current();
+    struct sup_page *sp = spt_find(&t->spt, upage);
+    // if supplemental page doesn't exist, or if writing to read only page, or if loading the page fails then kill the process
+    if(sp == NULL || write && sp->writable == false || !spt_load_page(sp)) {
+      // does not return and kills the process after the if statement
+    } else {
+      return;
+    }
     // user process made a bad memory access — cleanly terminate it (do not kill the process)
    //  if (user) {
    //      system_exit(-1);

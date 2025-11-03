@@ -7,6 +7,7 @@
 #include "vm/swap.h"
 #include <string.h>
 #include <round.h>
+#include "userprog/syscall.h"
 
 /**
  * Hash function for supplemental page table entries.
@@ -37,16 +38,16 @@ void spt_init (struct hash *spt) {
     hash_init (spt, sup_page_hash, sup_page_less, NULL);
 }
 
+spt_destroy_entry(struct hash_elem *e, void *aux UNUSED) {
+    struct sup_page *sp = hash_entry (e, struct sup_page, elem);
+    free(sp);
+}
+
 /**
  * Destroy supplemental page table and free all entries.
  */
 void spt_destroy (struct hash *spt) {
-    struct hash_elem *e;
-    // delete all entries from the hash table
-    while ((e = hash_delete (spt, hash_cur (spt))) != NULL) {
-        struct sup_page *sp = hash_entry (e, struct sup_page, elem);
-        free(sp);
-    }
+    hash_destroy (spt, spt_destroy_entry);
 }
 
 /**
@@ -133,21 +134,32 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
 bool spt_load_page (struct sup_page *sp) {
     // get current thread and allocate a frame for the page
     struct thread *t = thread_current();
-    struct frame *f = frame_alloc(sp->upage, PAL_USER);
-    if (f == NULL) {
+    void *kpage = frame_alloc(sp->upage, PAL_USER);
+    if (kpage == NULL) {
         // frame allocation failed
         return false;
     }
-    void *kpage = f->kpage;
+    // don't let this page get evicted while loading
+    frame_pin(kpage);
+
     // load the page data
     if (sp->from_swap) {
         // page was swapped out, read from swap
         swap_in (sp->swap_slot, kpage);
     } else if (sp->file != NULL) {
         // page is from executable, read data from this file
+        lock_acquire(&file_lock);
         file_seek(sp->file, sp->offset);
-        file_read(sp->file, kpage, sp->read_bytes);
+        int bytes_read = file_read(sp->file, kpage, sp->read_bytes);
+        lock_release(&file_lock);
+        if(bytes_read != (int) sp->read_bytes) {
+            // file read failed
+            
+            frame_free (kpage);
+            return false;
+        }
         memset((uint8_t*) kpage + sp->read_bytes, 0, sp->zero_bytes);
+
     } else {
         // page is zeroed
         memset(kpage, 0, PGSIZE);
@@ -155,12 +167,18 @@ bool spt_load_page (struct sup_page *sp) {
     // add the page to the process's page directory
     if (!pagedir_set_page(t->pagedir, sp->upage, kpage, sp->writable)){
         // failed to map page, free frame and return false
-        frame_free (f);
+        frame_free (kpage);
         return false;
+    }
+
+    struct frame *f = find_frame(kpage);
+    if (f != NULL) {
+        f->spte = sp;
     }
     // update supplemental page table entry
     sp->loaded = true;
     sp->from_swap = false;
+    frame_unpin(kpage);  // allow this frame to be evicted now that loading is over
     // return success
     return true;
 }

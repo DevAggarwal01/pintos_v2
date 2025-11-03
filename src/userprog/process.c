@@ -20,6 +20,7 @@
 #include "threads/synch.h" // for semaphores and synchronization 
 #include "syscall.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -145,6 +146,7 @@ process_execute (const char *file_name) {
 static void start_process (void *info){
     // initialize thread, start_info, and file_name structures
     struct thread *t = thread_current();
+    spt_init(&t->spt);
     struct start_info *start_info = info;
     char *file_name = start_info->fn_copy;
     // set up parent and child record pointers
@@ -585,33 +587,42 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-    //   uint8_t *kpage = palloc_get_page (PAL_USER);
-      uint8_t *kpage = frame_alloc(upage, PAL_USER);
-      if (kpage == NULL)
+      // lazy loading
+      if(!spt_insert_file(&thread_current()->spt, upage, file, ofs, page_read_bytes, page_zero_bytes, writable)) {
         return false;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-        //   palloc_free_page (kpage);
-          frame_free((void *) kpage);
-          return false;
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable))
-        {
-        //   palloc_free_page (kpage);
-          frame_free((void *) kpage);
-          return false;
-        }
-
-      /* Advance. */
+      }
+      // move forward
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+      ofs += PGSIZE;
+    //   /* Get a page of memory. */
+    // //   uint8_t *kpage = palloc_get_page (PAL_USER);
+    //   uint8_t *kpage = frame_alloc(upage, PAL_USER);
+    //   if (kpage == NULL)
+    //     return false;
+
+    //   /* Load this page. */
+    //   if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+    //     {
+    //     //   palloc_free_page (kpage);
+    //       frame_free((void *) kpage);
+    //       return false;
+    //     }
+    //   memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+    //   /* Add the page to the process's address space. */
+    //   if (!install_page (upage, kpage, writable))
+    //     {
+    //     //   palloc_free_page (kpage);
+    //       frame_free((void *) kpage);
+    //       return false;
+    //     }
+
+    //   /* Advance. */
+    //   read_bytes -= page_read_bytes;
+    //   zero_bytes -= page_zero_bytes;
+    //   upage += PGSIZE;
     }
   return true;
 }
@@ -638,6 +649,7 @@ static bool setup_stack (const char *cmdline, void **esp) {
         frame_free((void *) kpage);
         return false;
     }
+    spt_insert_zero(&thread_current()->spt, upage); // add to supplemental page table
     // start stack at top of user page
     uint8_t *sp = (uint8_t *) PHYS_BASE;
     // make a writable copy of cmdline to tokenize
