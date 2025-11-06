@@ -422,19 +422,8 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (buffer == NULL) {
                 system_exit(-1);
             }
-            const char *bufw = (const char *)buffer;
-            unsigned remainingw = size;
-            while (remainingw > 0) {
-                if (addr_to_page(bufw) == NULL) {
-                    system_exit(-1);
-                }
-                size_t offset = (uintptr_t)bufw & (PGSIZE - 1);
-                size_t chunk = PGSIZE - offset;
-                if (chunk > remainingw) {
-                    chunk = remainingw;
-                }
-                bufw += chunk;
-                remainingw -= chunk;
+            if (!copy_data(buffer, buffer, size)) {
+                system_exit(-1);
             }
             if (fd == 1) {
                 putbuf(buffer, size);

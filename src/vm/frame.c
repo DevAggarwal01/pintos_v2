@@ -120,7 +120,7 @@ void *choose_evicted_frame(void) {
         }
         struct frame *f = list_entry(clock_hand, struct frame, clock_elem);
         // skip pinned frames
-        if (f->pin) {
+        if (f->pin || f->owner == NULL || f->owner->pagedir == NULL) {
             clock_hand = list_next(clock_hand);
             continue;
         }
@@ -181,3 +181,55 @@ void *frame_evict(void* frame_addr) {
     lock_release(&frame_lock);
     return reuse_page;
 }
+
+void frame_free_all(struct thread *t) {
+    lock_acquire(&frame_lock);
+
+    struct list_elem *e = list_begin(&frame_clock_list);
+    while (e != list_end(&frame_clock_list)) {
+        struct list_elem *next = list_next(e);
+        struct frame *f = list_entry(e, struct frame, clock_elem);
+
+        if (f->owner == t) {
+            /* If the clock hand points to this element, advance it to avoid
+               leaving clock_hand pointing at a removed element. */
+            if (clock_hand == e) {
+                /* Prefer to advance to next; if that is end, wrap to begin.
+                   If the list will become empty, set clock_hand = NULL. */
+                if (next != list_end(&frame_clock_list)) {
+                    clock_hand = next;
+                } else {
+                    /* find a new begin (which might be the same element
+                       if there are duplicates) or NULL if the list will be empty. */
+                    if (list_begin(&frame_clock_list) == e) {
+                        clock_hand = NULL;
+                    } else {
+                        clock_hand = list_begin(&frame_clock_list);
+                    }
+                }
+            }
+
+            /* Remove from frame structures (hash and clock list). */
+            hash_delete(&frame_table, &f->hash_elem);
+            list_remove(&f->clock_elem);
+
+            /* Do NOT free the kpage here. pagedir_destroy (or other
+               owner cleanup) will free kernel pages. Prevent double-free
+               by clearing the pointer and freeing the frame struct. */
+            f->kpage = NULL;
+            free(f);
+        }
+
+        e = next;
+    }
+
+    /* If we've removed everything, ensure clock_hand is NULL. */
+    if (list_empty(&frame_clock_list))
+        clock_hand = NULL;
+
+    lock_release(&frame_lock);
+}
+
+
+
+

@@ -24,6 +24,8 @@ void* frame_alloc(void* user_vaddr, enum palloc_flags flags);
 void frame_free(void* frame);
 // evict a frame using the clock algorithm
 void* frame_evict(void* frame);
+// free all frames associated with a thread
+void frame_free_all(struct thread* t);
 
 struct frame *find_frame(void *kpage);
 

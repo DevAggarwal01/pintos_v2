@@ -296,6 +296,7 @@ void process_exit (void) {
         pagedir_activate (NULL);
         pagedir_destroy (pd);
     }
+    frame_free_all(cur);
 }
 
 /* Sets up the CPU for running user code in the current

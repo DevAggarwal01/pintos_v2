@@ -72,6 +72,7 @@ size_t swap_out(void *frame_addr) {
     lock_release(&swap_lock);
     // if no free slot found, return error
     if (free_index == BITMAP_ERROR){
+        printf("UNABLE TO EVICT, SO FAILING.");
         return BITMAP_ERROR;
     }
     // write each sector of the page into the swap block

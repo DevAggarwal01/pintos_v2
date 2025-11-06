@@ -87,6 +87,10 @@ bool spt_insert_file (struct hash *spt,
     sp->zero_bytes = zero_bytes;
     sp->swap_slot = 0;
     sp->from_swap = false;
+    if (hash_find(spt, &sp->elem) != NULL) {
+        free(sp);
+        return false;
+    }
     // insert into hash table
     bool ok = hash_insert(spt, &sp->elem) == NULL;
     if (!ok) {
@@ -148,7 +152,6 @@ bool spt_load_page (struct sup_page *sp) {
         swap_in (sp->swap_slot, kpage);
     } else if (sp->file != NULL) {
         // page is from executable, read data from this file
-        // printf("Got here, so something bad here.\n");
         lock_acquire(&file_lock);
         file_seek(sp->file, sp->offset);
         int bytes_read = file_read(sp->file, kpage, sp->read_bytes);
