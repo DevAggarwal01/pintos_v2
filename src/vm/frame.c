@@ -105,36 +105,37 @@ struct frame *find_frame(void *kpage) {
 NOTE: must be called with frame_lock acquired
 Returns: pointer to evicted frame, or NULL on failure
 */ 
-void *choose_evicted_frame() {
-    if(list_empty(&frame_clock_list)) {
-        lock_release(&frame_lock);
+void *choose_evicted_frame(void) {
+    ASSERT(lock_held_by_current_thread(&frame_lock));
+    if (list_empty(&frame_clock_list)) {
         return NULL;
     }
-    if (clock_hand == NULL) {
+    // Initialize clock hand if needed
+    if (clock_hand == NULL || clock_hand == list_end(&frame_clock_list)) {
         clock_hand = list_begin(&frame_clock_list);
     }
     while (true) {
-        if(clock_hand == list_end(&frame_clock_list)) {
+        if (clock_hand == list_end(&frame_clock_list)) {
             clock_hand = list_begin(&frame_clock_list);
         }
         struct frame *f = list_entry(clock_hand, struct frame, clock_elem);
-        if(f->pin) // don't evict if pinned
+        // skip pinned frames
+        if (f->pin) {
+            clock_hand = list_next(clock_hand);
             continue;
-        clock_hand = list_next(clock_hand);
-        // if it hasn't been accessed evict it
+        }
+        // if not accessed recently, choose for eviction
         if (!pagedir_is_accessed(f->owner->pagedir, f->user_vaddr)) {
-            // found a victim frame
-            lock_release(&frame_lock);
+            // Advance hand for next time
+            clock_hand = list_next(clock_hand);
             return f;
         }
-        // reset accessed bit since clock hand has reached it and move on
+        // clear accessed bit and advance
         pagedir_set_accessed(f->owner->pagedir, f->user_vaddr, false);
         clock_hand = list_next(clock_hand);
-        if (clock_hand == NULL) {
-            clock_hand = list_begin(&frame_clock_list);
-        }
     }
 }
+
 
 void *frame_evict(void* frame_addr) {
     // TODO implement clock algorithm to evict a frame

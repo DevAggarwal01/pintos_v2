@@ -251,10 +251,16 @@ void process_exit (void) {
     }
     // close executable file, allow writes
     if (cur->exec_file != NULL) {
-        lock_acquire(&file_lock);
-        file_allow_write(cur->exec_file);
-        file_close(cur->exec_file);
-        lock_release(&file_lock);
+        if (!lock_held_by_current_thread(&file_lock)) {
+            lock_acquire(&file_lock);
+            file_allow_write(cur->exec_file);
+            file_close(cur->exec_file);
+            lock_release(&file_lock);
+        } else {
+            // Avoid recursive lock acquire; just close directly
+            file_allow_write(cur->exec_file);
+            file_close(cur->exec_file);
+        }
         cur->exec_file = NULL;
     }
 
@@ -262,9 +268,14 @@ void process_exit (void) {
     for (int i = 0; i < FD_MAX; i++) {
         struct fd_entry *fd_entry = cur->fd_table[i];
         if (fd_entry != NULL) {
-            lock_acquire(&file_lock);
-            file_close(fd_entry->f);
-            lock_release(&file_lock);
+            if (!lock_held_by_current_thread(&file_lock)) {
+                lock_acquire(&file_lock);
+                file_close(fd_entry->f);
+                lock_release(&file_lock);
+            } else {
+                // Avoid recursive lock acquire; just close directly
+                file_close(fd_entry->f);
+            }
             palloc_free_page(fd_entry);
             cur->fd_table[i] = NULL;
         }

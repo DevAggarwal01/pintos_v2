@@ -148,6 +148,7 @@ bool spt_load_page (struct sup_page *sp) {
         swap_in (sp->swap_slot, kpage);
     } else if (sp->file != NULL) {
         // page is from executable, read data from this file
+        // printf("Got here, so something bad here.\n");
         lock_acquire(&file_lock);
         file_seek(sp->file, sp->offset);
         int bytes_read = file_read(sp->file, kpage, sp->read_bytes);

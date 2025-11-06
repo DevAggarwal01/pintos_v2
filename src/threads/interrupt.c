@@ -331,6 +331,7 @@ void intr_handler (struct intr_frame *frame)
      We only handle one at a time (so interrupts must be off)
      and they need to be acknowledged on the PIC (see below).
      An external interrupt handler cannot sleep. */
+  in_external_intr = false;
   external = frame->vec_no >= 0x20 && frame->vec_no < 0x30;
   if (external)
     {

@@ -64,17 +64,32 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
     const uint8_t *user_src = user_src_;
     uint8_t *kernel_ptr = kernel_dst;
     uint8_t *end = user_src + size;
-    // TODO no need to copy byte by byte or allocate kernel space. just get the variable already from the stack
-    // TODO need to catch page faults in syscall handler instead of exception handler
 
     if (user_src == NULL || !is_user_vaddr(user_src) || !is_user_vaddr(end - 1))
         return false;
 
-    // copy byte by byte, checking each address
-    for (uint8_t *p = pg_round_down(user_src); p < end; p += PGSIZE) {
-        if (addr_to_page(p) == NULL)
+    /* Ensure every page touched by the copy is present.  For any page that
+       isn't currently mapped we attempt to load it via the supplemental
+       page table (spt).  This prevents the kernel from taking a page fault
+       while accessing user memory. */
+    for (void *page = pg_round_down(user_src); page < (void *)end; page = (uint8_t *)page + PGSIZE) {
+        /* If a mapping already exists in the page directory, fine. */
+        if (addr_to_page(page) != NULL)
+            continue;
+
+        /* Otherwise, check supplemental-page table for an entry and try to load it. */
+        struct thread *t = thread_current();
+        struct sup_page *sp = spt_find(&t->spt, page);
+        if (sp == NULL) {
+            /* No supplemental-page entry -> invalid access */
             return false;
+        }
+        if (!spt_load_page(sp)) {
+            /* Failed to load the page (swap/file error etc.) */
+            return false;
+        }
     }
+    /* Now that pages are present, perform the copy. */
     memcpy(kernel_dst, user_src, size);
     // successfully copied all bytes
     return true;
@@ -84,42 +99,28 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
  * Copies a null-terminated string from user space to kernel space.
  * Returns pointer to kernel string on success, NULL on failure.
  */
-// static char *copy_string(const char *user_str) {
-//     // check for null and that the address is in user address range
-//     if (user_str == NULL || !is_user_vaddr(user_str)) {
-//         return NULL;
-//     }
-//     // allocate a page for the string buffer
-//     char *buffer = palloc_get_page(0);
-    
-//     if (buffer == NULL) {
-//         return NULL;
-//     }
-//     // copy byte by byte until null terminator or page size limit
-//     for (size_t i = 0; i < PGSIZE; i++) {
-//         uint8_t *page = addr_to_page(user_str + i);
-//         if (page == NULL) {
-//             palloc_free_page(buffer);
-//             return NULL;
-//         }
-//         buffer[i] = *(user_str + i);
-//         if (buffer[i] == '\0') {
-//             return buffer;
-//         }
-//     }
-//     // string too long (no null terminator within page)
-//     palloc_free_page(buffer);
-//     return NULL;
-// }
 static bool copy_string(char *dst, const char *usrc)
 {
     if (usrc == NULL || !is_user_vaddr(usrc))
         return false;
     // 128 B limit for args
     for (size_t i = 0; i < 128; i++) {
-        if (addr_to_page(usrc + i) == NULL)
-            system_exit(-1);
+        void *page = pg_round_down(usrc + i);
 
+        /* Make sure the page is present (load it if necessary). */
+        if (addr_to_page(page) == NULL) {
+            struct sup_page *sp = spt_find(&thread_current()->spt, page);
+            if (sp == NULL) {
+                /* No mapping and no spt entry -> invalid pointer. */
+                system_exit(-1);
+            }
+            if (!spt_load_page(sp)) {
+                /* Couldn't load backing page -> fatal */
+                system_exit(-1);
+            }
+        }
+
+        /* Now safe to access the byte without risking a kernel-mode page fault. */
         char c = usrc[i];
         dst[i] = c;
         if (c == '\0')
@@ -385,19 +386,8 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (buffer == NULL) {
                 system_exit(-1);
             }
-            char *buf = (char *)buffer;
-            unsigned remaining = size;
-            while (remaining > 0) {
-                if (addr_to_page(buf) == NULL) {
-                    system_exit(-1);
-                }
-                size_t offset = (uintptr_t)buf & (PGSIZE - 1);
-                size_t chunk = PGSIZE - offset;
-                if (chunk > remaining) {
-                    chunk = remaining;
-                }
-                buf += chunk;
-                remaining -= chunk;
+            if (!copy_data(buffer, buffer, size)) {
+                system_exit(-1);
             }
             if (fd == 0) {
                 for (unsigned i = 0; i < size; i++) {

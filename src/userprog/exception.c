@@ -150,40 +150,81 @@ static void page_fault (struct intr_frame *f)
 
     /* THE FOLLOWING CODE IS A MODIFICATION MADE TO THE ORIGINAL CODE*/
     // -----START MODIFICATION-----
-    // kernel address 
-    if(!is_user_vaddr(fault_addr) || fault_addr == NULL || !not_present) {
-       printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
-            not_present ? "not present" : "rights violation",
-            write ? "writing" : "reading", user ? "user" : "kernel");
+    /* If this is not a user-mode, not-present fault, die as before. */
 
+    if (!is_user_vaddr(fault_addr) || fault_addr == NULL || !not_present) {
+        if (!user && is_user_vaddr(fault_addr)) {
+            // fault in user address space, even if kernel was executing (e.g., during syscall)
+            system_exit(-1);
+        }
+      printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
+              not_present ? "not present" : "rights violation",
+              write ? "writing" : "reading", user ? "user" : "kernel");
       printf ("There is no crying in Pintos!\n");
-
       kill (f);
     }
 
+    /* Round fault address down to page boundary and look up SPT. */
     void *upage = pg_round_down(fault_addr);
     struct thread *t = thread_current();
     struct sup_page *sp = spt_find(&t->spt, upage);
-    // if supplemental page doesn't exist, or if writing to read only page, or if loading the page fails then kill the process
-    if(sp == NULL || write && sp->writable == false || !spt_load_page(sp)) {
-      // does not return and kills the process after the if statement
-    } else {
-      return;
+
+    /* If there's no supplemental-page entry, this might be stack growth.
+       Only allow stack growth for user-mode, not-present faults, and only
+       when fault_addr is within ~32 bytes below the user stack pointer. */
+    if (sp == NULL) {
+      if (user && not_present) {
+        void *usp = (void *) f->esp;
+        /* Use uintptr_t to avoid undefined pointer arithmetic. */
+        uintptr_t fault_u = (uintptr_t) fault_addr;
+        uintptr_t esp_u   = (uintptr_t) usp;
+        uintptr_t phys_base_u = (uintptr_t) PHYS_BASE;
+
+        /* Valid stack growth if fault_addr is below PHYS_BASE (user space)
+           and within 32 bytes below the current esp. */
+        if (fault_u < phys_base_u && fault_u >= esp_u - 32) {
+          /* create a zero-backed supplemental page for upage */
+          sp = malloc(sizeof *sp);
+          if (sp == NULL) {
+            /* couldn't allocate supplemental-page structure; kill */
+            printf("Out of memory creating stack page entry.\n");
+            kill(f);
+          }
+          /* Initialize fields expected by spt_load_page / page.c */
+          sp->upage = upage;
+          sp->writable = true;
+          sp->loaded = false;
+          sp->file = NULL;
+          sp->offset = 0;
+          sp->read_bytes = 0;
+          sp->zero_bytes = PGSIZE;
+          sp->from_swap = false;
+          sp->swap_slot = 0;
+          /* Insert into supplemental page table */
+          if (hash_insert(&t->spt, &sp->elem) == NULL) {
+            /* inserted ok - continue to load page below */
+          } else {
+            /* duplicate insertion or error; free and kill */
+            free(sp);
+            kill(f);
+          }
+        }
+        /* else: not a valid stack-growth access; we'll kill below */
+      }
     }
-    // user process made a bad memory access — cleanly terminate it (do not kill the process)
-   //  if (user) {
-   //      system_exit(-1);
-   //  }
+
+    /* If we still don't have a supplemental page, or the access violates
+       the page's writability, or loading fails, terminate the user process. */
+    if (sp == NULL || (write && sp->writable == false) || !spt_load_page(sp)) {
+      printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
+              not_present ? "not present" : "rights violation",
+              write ? "writing" : "reading", user ? "user" : "kernel");
+      printf ("There is no crying in Pintos!\n");
+      kill (f);
+    }
+
+    /* Successfully handled the page fault (either existing entry was loaded
+       or we grew the stack and loaded a zero page). Return to user. */
+    return;
     // -----END MODIFICATION-----
-
-    /* To implement virtual memory, delete the rest of the function
-        body, and replace it with code that brings in the page to
-        which fault_addr refers. */
-    printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
-            not_present ? "not present" : "rights violation",
-            write ? "writing" : "reading", user ? "user" : "kernel");
-
-    printf ("There is no crying in Pintos!\n");
-
-    kill (f);
 }
