@@ -23,9 +23,9 @@
 // swap block device
 struct block *swap_block;
 // bitmap to track used/unused swap slots
-static struct bitmap *swap_bitmap;
+struct bitmap *swap_bitmap;
 // lock for synchronization
-static struct lock swap_lock;
+struct lock swap_lock;
 
 // number of sectors per page
 #define SECTORS_PER_PAGE (PGSIZE / BLOCK_SECTOR_SIZE)
@@ -72,7 +72,6 @@ size_t swap_out(void *frame_addr) {
     lock_release(&swap_lock);
     // if no free slot found, return error
     if (free_index == BITMAP_ERROR){
-        printf("UNABLE TO EVICT, SO FAILING.");
         return BITMAP_ERROR;
     }
     // write each sector of the page into the swap block

@@ -10,7 +10,7 @@ struct frame {
     struct thread *owner;           // thread that owns this frame
     void* kpage;                    // kernel page address
     void* user_vaddr;               // user virtual address mapped to this frame
-    struct spt_entry *spte;         // supplemental page table entry associated with this frame
+    struct sup_page *spte;          // supplemental page table entry associated with this frame
     struct hash_elem hash_elem;     // hash table element for frame table
     struct list_elem clock_elem;    // list element for clock algorithm
     bool pin;                       // don't evict during I/O

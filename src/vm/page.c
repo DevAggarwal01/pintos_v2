@@ -1,4 +1,5 @@
 #include "vm/page.h"
+#include "vm/swap.h"
 #include "threads/vaddr.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
@@ -39,7 +40,12 @@ void spt_init (struct hash *spt) {
 }
 
 spt_destroy_entry(struct hash_elem *e, void *aux UNUSED) {
-    struct sup_page *sp = hash_entry (e, struct sup_page, elem);
+    struct sup_page *sp = hash_entry(e, struct sup_page, elem);
+    if (sp->from_swap) {
+        lock_acquire(&swap_lock);
+        bitmap_set(swap_bitmap, sp->swap_slot, false);
+        lock_release(&swap_lock);
+    }
     free(sp);
 }
 
@@ -121,6 +127,10 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
     sp->zero_bytes = PGSIZE;
     sp->swap_slot = 0;
     sp->from_swap = false;
+    if (hash_find(spt, &sp->elem) != NULL) {
+        free(sp);
+        return false;
+    }
     // insert into hash table
     bool ok = hash_insert(spt, &sp->elem) == NULL;
     if (!ok) {
@@ -145,7 +155,6 @@ bool spt_load_page (struct sup_page *sp) {
     }
     // don't let this page get evicted while loading
     frame_pin(kpage);
-
     // load the page data
     if (sp->from_swap) {
         // page was swapped out, read from swap
@@ -157,8 +166,6 @@ bool spt_load_page (struct sup_page *sp) {
         int bytes_read = file_read(sp->file, kpage, sp->read_bytes);
         lock_release(&file_lock);
         if(bytes_read != (int) sp->read_bytes) {
-            // file read failed
-            
             frame_free (kpage);
             return false;
         }

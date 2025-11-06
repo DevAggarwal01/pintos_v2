@@ -2,6 +2,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+
+extern struct bitmap *swap_bitmap;
+extern struct lock swap_lock;
+
 // initializes the swap system
 bool swap_init(void);
 // swaps out a page to disk
