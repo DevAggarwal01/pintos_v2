@@ -4,7 +4,11 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 
+extern struct hash frame_table;         // hash table of all frames 
+extern struct list frame_clock_list;    // eviction policy is clock algorithm
+extern struct lock frame_lock;          // lock for frame table and clock list
 
+    
 // structure to store frame information
 struct frame {
     struct thread *owner;           // thread that owns this frame
@@ -19,7 +23,7 @@ struct frame {
 // initialize frame table and clock list
 void frame_init(void);
 // allocate a frame for a given user virtual address with specified flags
-void* frame_alloc(void* user_vaddr, enum palloc_flags flags);
+void* frame_alloc(void* user_vaddr, enum palloc_flags flags, struct sup_page *spte);
 // free a given frame
 void frame_free(void* frame);
 // evict a frame using the clock algorithm

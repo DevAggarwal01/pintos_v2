@@ -27,16 +27,16 @@ void frame_init(void) {
     clock_hand = NULL;
 }
 
-void *frame_alloc(void *user_vaddr, enum palloc_flags flags) {
+void *frame_alloc(void *user_vaddr, enum palloc_flags flags, struct sup_page *spte) {
+    ASSERT(spte != NULL);  // Defensive check
+
     void *kpage = palloc_get_page(flags);
     if (kpage == NULL) {
-        // evict a frame so that kpage can make use of physical address returned by frame_evict
-        kpage = frame_evict(kpage);
-        if (kpage == NULL) {
+        kpage = frame_evict(NULL);  // NULL because we’re not reusing the old kpage
+        if (kpage == NULL)
             return NULL;
-        }
     }
-    
+
     struct frame *new_frame = malloc(sizeof(struct frame));
     if (new_frame == NULL) {
         palloc_free_page(kpage);
@@ -46,7 +46,7 @@ void *frame_alloc(void *user_vaddr, enum palloc_flags flags) {
     new_frame->owner = thread_current();
     new_frame->kpage = kpage;
     new_frame->user_vaddr = user_vaddr;
-    new_frame->spte = NULL;
+    new_frame->spte = spte;
     new_frame->pin = false;
 
     lock_acquire(&frame_lock);
@@ -56,6 +56,7 @@ void *frame_alloc(void *user_vaddr, enum palloc_flags flags) {
 
     return kpage;
 }
+
 
 void frame_pin(void *kpage) {
     lock_acquire(&frame_lock);
@@ -85,7 +86,8 @@ void frame_free(void* page_addr) {
     if (he != NULL) {
         struct frame *f = hash_entry(he, struct frame, hash_elem);
         hash_delete(&frame_table, he);
-        list_remove(&f->clock_elem);
+        if (f->clock_elem.prev != NULL && f->clock_elem.next != NULL)
+            list_remove(&f->clock_elem);
         palloc_free_page(f->kpage);
         free(f);
     }
@@ -124,8 +126,11 @@ void *choose_evicted_frame(void) {
             clock_hand = list_next(clock_hand);
             continue;
         }
-        // if not accessed recently, choose for eviction
-        if (!pagedir_is_accessed(f->owner->pagedir, f->user_vaddr)) {
+        if (pagedir_is_accessed(f->owner->pagedir, f->user_vaddr)) {
+            pagedir_set_accessed(f->owner->pagedir, f->user_vaddr, false);
+            // give second chance, skip this frame for now
+            continue;
+        } else {
             // Advance hand for next time
             clock_hand = list_next(clock_hand);
             return f;

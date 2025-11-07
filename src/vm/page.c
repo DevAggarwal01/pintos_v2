@@ -163,7 +163,7 @@ bool spt_load_page (struct sup_page *sp) {
     // get current thread and allocate a frame for the page
     lock_acquire(&thread_current()->spt_lock);
     struct thread *t = thread_current();
-    void *kpage = frame_alloc(sp->upage, PAL_USER);
+    void *kpage = frame_alloc(sp->upage, PAL_USER, sp);
     if (kpage == NULL) {
         // frame allocation failed
         lock_release(&thread_current()->spt_lock);
@@ -197,11 +197,6 @@ bool spt_load_page (struct sup_page *sp) {
         frame_free (kpage);
         lock_release(&thread_current()->spt_lock);
         return false;
-    }
-
-    struct frame *f = find_frame(kpage);
-    if (f != NULL) {
-        f->spte = sp;
     }
     // update supplemental page table entry
     sp->loaded = true;

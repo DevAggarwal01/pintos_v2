@@ -617,33 +617,6 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
       ofs += page_read_bytes;
-    //   /* Get a page of memory. */
-    // //   uint8_t *kpage = palloc_get_page (PAL_USER);
-    //   uint8_t *kpage = frame_alloc(upage, PAL_USER);
-    //   if (kpage == NULL)
-    //     return false;
-
-    //   /* Load this page. */
-    //   if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-    //     {
-    //     //   palloc_free_page (kpage);
-    //       frame_free((void *) kpage);
-    //       return false;
-    //     }
-    //   memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-    //   /* Add the page to the process's address space. */
-    //   if (!install_page (upage, kpage, writable))
-    //     {
-    //     //   palloc_free_page (kpage);
-    //       frame_free((void *) kpage);
-    //       return false;
-    //     }
-
-    //   /* Advance. */
-    //   read_bytes -= page_read_bytes;
-    //   zero_bytes -= page_zero_bytes;
-    //   upage += PGSIZE;
     }
   return true;
 }
@@ -665,7 +638,7 @@ static bool setup_stack (const char *cmdline, void **esp) {
         return false;
 
     // Step 2: Allocate frame (frame_alloc will put it in the frame table with f->spte == NULL)
-    kpage = frame_alloc(upage, PAL_USER | PAL_ZERO);
+    kpage = frame_alloc(upage, PAL_USER | PAL_ZERO, spte);
     if (kpage == NULL)
         return false;
 
@@ -673,14 +646,11 @@ static bool setup_stack (const char *cmdline, void **esp) {
     struct frame *f = find_frame(kpage);
     if (f == NULL)
         return false;
-    f->spte = spte;   // 🛠 Key fix to prevent race before eviction
     // Step 4: Install the mapping
     if (!install_page(upage, kpage, true)) {
         frame_free(kpage);
         return false;
     }
-    // Step 5: Mark SPT loaded
-    spte->loaded = true;
     // start stack at top of user page
     uint8_t *sp = (uint8_t *) PHYS_BASE;
     // make a writable copy of cmdline to tokenize
