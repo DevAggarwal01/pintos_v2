@@ -170,7 +170,6 @@ bool spt_load_page (struct sup_page *sp) {
             return false;
         }
         memset((uint8_t*) kpage + sp->read_bytes, 0, sp->zero_bytes);
-
     } else {
         // page is zeroed
         memset(kpage, 0, PGSIZE);
