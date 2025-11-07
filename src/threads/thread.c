@@ -188,6 +188,8 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   kf->function = function;
   kf->aux = aux;
 
+  t->esp = (uint8_t *)kf;
+
   /* Stack frame for switch_entry(). */
   ef = alloc_frame (t, sizeof *ef);
   ef->eip = (void (*) (void)) kernel_thread;

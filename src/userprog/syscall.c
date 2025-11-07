@@ -81,8 +81,15 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
         struct thread *t = thread_current();
         struct sup_page *sp = spt_find(&t->spt, page);
         if (sp == NULL) {
-            /* No supplemental-page entry -> invalid access */
-            return false;
+            uintptr_t fault_u = (uintptr_t) page;
+            uintptr_t esp_u = (uintptr_t) t->esp;
+            uintptr_t phys_base_u = (uintptr_t) PHYS_BASE;
+            if (fault_u < phys_base_u && fault_u >= esp_u - 32) {
+                if (!spt_insert_zero(&t->spt, page))
+                    return false;
+                sp = spt_find(&t->spt, page);
+            }
+            if (sp == NULL) return false;
         }
         if (!spt_load_page(sp)) {
             /* Failed to load the page (swap/file error etc.) */
@@ -199,7 +206,10 @@ void remove_fd(int fd) {
  * The main system call handler function.
  * Uses the appropriate system call based on the syscall number.
  */
+
 static void syscall_handler (struct intr_frame *f UNUSED) {
+    struct thread *cur = thread_current();
+    cur->esp = f->esp;
     // get the syscall number from the stack
     uint8_t *sp = f->esp;
     // check for null and that the stack pointer is in user address range

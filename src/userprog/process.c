@@ -607,7 +607,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
-      ofs += PGSIZE;
+      ofs += page_read_bytes;
     //   /* Get a page of memory. */
     // //   uint8_t *kpage = palloc_get_page (PAL_USER);
     //   uint8_t *kpage = frame_alloc(upage, PAL_USER);
