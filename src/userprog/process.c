@@ -601,10 +601,18 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       // lazy loading
-      if(!spt_insert_file(&thread_current()->spt, upage, file, ofs, page_read_bytes, page_zero_bytes, writable)) {
-        return false;
-      }
-      // move forward
+        bool ok;
+        if (page_read_bytes > 0) {
+            /* File-backed page with some bytes from file */
+            ok = spt_insert_file(&thread_current()->spt, upage, file, ofs,
+                                page_read_bytes, page_zero_bytes, writable);
+        } else {
+            /* No bytes to read from file (page is all zeros) */
+            ok = spt_insert_zero(&thread_current()->spt, upage);
+        }
+        if (!ok)
+            return false;
+        // move forward
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
@@ -666,7 +674,6 @@ static bool setup_stack (const char *cmdline, void **esp) {
     if (f == NULL)
         return false;
     f->spte = spte;   // 🛠 Key fix to prevent race before eviction
-
     // Step 4: Install the mapping
     if (!install_page(upage, kpage, true)) {
         frame_free(kpage);

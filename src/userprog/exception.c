@@ -172,46 +172,39 @@ static void page_fault (struct intr_frame *f)
     /* If there's no supplemental-page entry, this might be stack growth.
        Only allow stack growth for user-mode, not-present faults, and only
        when fault_addr is within ~32 bytes below the user stack pointer. */
-    if (sp == NULL) {
-      if (user && not_present) {
-        void *usp = (void *) f->esp;
-        /* Use uintptr_t to avoid undefined pointer arithmetic. */
+    if (not_present && sp == NULL) {
+        // Only attempt stack growth if no existing SPT entry
         uintptr_t fault_u = (uintptr_t) fault_addr;
-        uintptr_t esp_u   = (uintptr_t) usp;
+        uintptr_t esp_u = (uintptr_t) f->esp;
         uintptr_t phys_base_u = (uintptr_t) PHYS_BASE;
+        // Allow stack growth only if both addresses are in user space
+        if (fault_u < phys_base_u && esp_u < phys_base_u && fault_u >= esp_u - 32) {
+            void *upage = pg_round_down(fault_addr);
+            struct sup_page *new_sp = malloc(sizeof *new_sp);
+            if (new_sp == NULL)
+                kill(f);
+            new_sp->upage = upage;
+            new_sp->writable = true;
+            new_sp->loaded = false;
+            new_sp->file = NULL;
+            new_sp->offset = 0;
+            new_sp->read_bytes = 0;
+            new_sp->zero_bytes = PGSIZE;
+            new_sp->from_swap = false;
+            new_sp->swap_slot = 0;
 
-        /* Valid stack growth if fault_addr is below PHYS_BASE (user space)
-           and within 32 bytes below the current esp. */
-        if (fault_u < phys_base_u && fault_u >= esp_u - 32) {
-          /* create a zero-backed supplemental page for upage */
-          sp = malloc(sizeof *sp);
-          if (sp == NULL) {
-            /* couldn't allocate supplemental-page structure; kill */
-            printf("Out of memory creating stack page entry.\n");
-            kill(f);
-          }
-          /* Initialize fields expected by spt_load_page / page.c */
-          sp->upage = upage;
-          sp->writable = true;
-          sp->loaded = false;
-          sp->file = NULL;
-          sp->offset = 0;
-          sp->read_bytes = 0;
-          sp->zero_bytes = PGSIZE;
-          sp->from_swap = false;
-          sp->swap_slot = 0;
-          /* Insert into supplemental page table */
-          if (hash_insert(&t->spt, &sp->elem) == NULL) {
-            /* inserted ok - continue to load page below */
-          } else {
-            /* duplicate insertion or error; free and kill */
-            free(sp);
-            kill(f);
-          }
+            lock_acquire(&t->spt_lock);
+            if (hash_insert(&t->spt, &new_sp->elem) == NULL) {
+                // Success
+                sp = new_sp;
+            } else {
+                // Collision or error
+                free(new_sp);
+            }
+            lock_release(&t->spt_lock);
         }
-        /* else: not a valid stack-growth access; we'll kill below */
-      }
     }
+
 
     /* If we still don't have a supplemental page, or the access violates
        the page's writability, or loading fails, terminate the user process. */
