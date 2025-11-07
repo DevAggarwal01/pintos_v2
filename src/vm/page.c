@@ -53,16 +53,20 @@ spt_destroy_entry(struct hash_elem *e, void *aux UNUSED) {
  * Destroy supplemental page table and free all entries.
  */
 void spt_destroy (struct hash *spt) {
+    lock_acquire(&thread_current()->spt_lock);
     hash_destroy (spt, spt_destroy_entry);
+    lock_release(&thread_current()->spt_lock);
 }
 
 /**
  * Find the supplemental page entry for user address (rounded down to page boundary).
  */
 struct sup_page* spt_find (struct hash *spt, void *upage){
+    lock_acquire(&thread_current()->spt_lock);
     struct sup_page tmp;
     tmp.upage = pg_round_down(upage);
     struct hash_elem *e = hash_find(spt, &tmp.elem);
+    lock_release(&thread_current()->spt_lock);
     return e ? hash_entry(e, struct sup_page, elem) : NULL;
 }
 
@@ -77,10 +81,12 @@ bool spt_insert_file (struct hash *spt,
                         uint32_t read_bytes, 
                         uint32_t zero_bytes, 
                         bool writable) {
+    lock_acquire(&thread_current()->spt_lock);
     // allocate and initialize new sup_page entry
     struct sup_page *sp = malloc (sizeof *sp);
     if (sp == NULL) {
         // allocation failed
+        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // default versions of all sup_page fields
@@ -95,13 +101,16 @@ bool spt_insert_file (struct hash *spt,
     sp->from_swap = false;
     if (hash_find(spt, &sp->elem) != NULL) {
         free(sp);
+        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // insert into hash table
     bool ok = hash_insert(spt, &sp->elem) == NULL;
     if (!ok) {
+        lock_release(&thread_current()->spt_lock);
         free (sp);
     }
+    lock_release(&thread_current()->spt_lock);
     // return success or failure
     return ok;
 }
@@ -112,9 +121,11 @@ bool spt_insert_file (struct hash *spt,
  */
 bool spt_insert_zero (struct hash *spt, void *upage) {
     // allocate and initialize new sup_page entry
+    lock_acquire(&thread_current()->spt_lock);
     struct sup_page *sp = malloc (sizeof *sp);
     if (sp == NULL) {
         // allocation failed
+        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // default versions of all sup_page fields
@@ -129,14 +140,17 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
     sp->from_swap = false;
     if (hash_find(spt, &sp->elem) != NULL) {
         free(sp);
+        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // insert into hash table
     bool ok = hash_insert(spt, &sp->elem) == NULL;
     if (!ok) {
         free (sp);
+        lock_release(&thread_current()->spt_lock);
     }
     // return success or failure
+    lock_release(&thread_current()->spt_lock);
     return ok;
 }
 
@@ -147,10 +161,12 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
  */
 bool spt_load_page (struct sup_page *sp) {
     // get current thread and allocate a frame for the page
+    lock_acquire(&thread_current()->spt_lock);
     struct thread *t = thread_current();
     void *kpage = frame_alloc(sp->upage, PAL_USER);
     if (kpage == NULL) {
         // frame allocation failed
+        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // don't let this page get evicted while loading
@@ -167,6 +183,7 @@ bool spt_load_page (struct sup_page *sp) {
         lock_release(&file_lock);
         if(bytes_read != (int) sp->read_bytes) {
             frame_free (kpage);
+            lock_release(&thread_current()->spt_lock);
             return false;
         }
         memset((uint8_t*) kpage + sp->read_bytes, 0, sp->zero_bytes);
@@ -178,6 +195,7 @@ bool spt_load_page (struct sup_page *sp) {
     if (!pagedir_set_page(t->pagedir, sp->upage, kpage, sp->writable)){
         // failed to map page, free frame and return false
         frame_free (kpage);
+        lock_release(&thread_current()->spt_lock);
         return false;
     }
 
@@ -190,5 +208,6 @@ bool spt_load_page (struct sup_page *sp) {
     sp->from_swap = false;
     frame_unpin(kpage);  // allow this frame to be evicted now that loading is over
     // return success
+    lock_release(&thread_current()->spt_lock);
     return true;
 }

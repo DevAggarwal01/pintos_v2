@@ -147,6 +147,7 @@ static void start_process (void *info){
     // initialize thread, start_info, and file_name structures
     struct thread *t = thread_current();
     spt_init(&t->spt);
+    lock_init(&t->spt_lock);
     struct start_info *start_info = info;
     char *file_name = start_info->fn_copy;
     // set up parent and child record pointers
@@ -650,18 +651,29 @@ static bool setup_stack (const char *cmdline, void **esp) {
     uint8_t *kpage;
     // kpage = palloc_get_page(PAL_USER | PAL_ZERO); // flags
     uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
+        spt_insert_zero(&thread_current()->spt, upage);
+    struct sup_page *spte = spt_find(&thread_current()->spt, upage);
+    if (spte == NULL)
+        return false;
+
+    // Step 2: Allocate frame (frame_alloc will put it in the frame table with f->spte == NULL)
     kpage = frame_alloc(upage, PAL_USER | PAL_ZERO);
-    if (kpage == NULL) {
+    if (kpage == NULL)
+        return false;
+
+    // Step 3: Manually assign f->spte immediately after allocation
+    struct frame *f = find_frame(kpage);
+    if (f == NULL)
+        return false;
+    f->spte = spte;   // 🛠 Key fix to prevent race before eviction
+
+    // Step 4: Install the mapping
+    if (!install_page(upage, kpage, true)) {
+        frame_free(kpage);
         return false;
     }
-    // map the page at the top of user virtual memory
-    bool success = install_page(((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-    if (!success) {
-        // palloc_free_page(kpage);
-        frame_free((void *) kpage);
-        return false;
-    }
-    spt_insert_zero(&thread_current()->spt, upage); // add to supplemental page table
+    // Step 5: Mark SPT loaded
+    spte->loaded = true;
     // start stack at top of user page
     uint8_t *sp = (uint8_t *) PHYS_BASE;
     // make a writable copy of cmdline to tokenize

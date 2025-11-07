@@ -231,5 +231,32 @@ void frame_free_all(struct thread *t) {
 }
 
 
+struct frame *frame_get(void *user_vaddr, enum palloc_flags flags) {
+    void *kpage = palloc_get_page(flags);
+    if (kpage == NULL) {
+        kpage = frame_evict(kpage);
+        if (kpage == NULL)
+            return NULL;
+    }
+
+    struct frame *new_frame = malloc(sizeof(struct frame));
+    if (new_frame == NULL) {
+        palloc_free_page(kpage);
+        return NULL;
+    }
+
+    new_frame->owner = thread_current();
+    new_frame->kpage = kpage;
+    new_frame->user_vaddr = user_vaddr;
+    new_frame->spte = NULL;
+    new_frame->pin = false;
+
+    lock_acquire(&frame_lock);
+    hash_insert(&frame_table, &new_frame->hash_elem);
+    list_push_back(&frame_clock_list, &new_frame->clock_elem);
+    lock_release(&frame_lock);
+
+    return new_frame;
+}
 
 

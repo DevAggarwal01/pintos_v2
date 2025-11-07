@@ -28,6 +28,8 @@ void* frame_evict(void* frame);
 void frame_free_all(struct thread* t);
 
 struct frame *find_frame(void *kpage);
+struct frame *frame_get(void *user_vaddr, enum palloc_flags flags);
+
 
 void frame_pin(void *kpage);
 void frame_unpin(void *kpage);

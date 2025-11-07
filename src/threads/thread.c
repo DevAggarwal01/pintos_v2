@@ -181,6 +181,7 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   tid = t->tid = allocate_tid ();
 
   spt_init(&initial_thread->spt);
+  lock_init(&initial_thread->spt_lock);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);

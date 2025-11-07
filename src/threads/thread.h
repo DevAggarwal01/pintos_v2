@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include <hash.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -105,7 +106,7 @@ struct thread
   struct list_elem allelem;  /* List element for all threads list. */
   void* esp;                 /* For some VM considerations.*/
 
-  
+
   /* Shared between thread.c and synch.c. */
   struct list_elem elem; /* List element. */
 
@@ -122,6 +123,7 @@ struct thread
   /* Owned by userprog/process.c. */
   uint32_t *pagedir; /* Page directory. */
   struct hash spt; /* Supplemental page table */
+  struct lock spt_lock; /* Supplmental page table lock. */
 #endif
 
   /* Owned by thread.c. */

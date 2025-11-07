@@ -220,7 +220,7 @@ static void page_fault (struct intr_frame *f)
               not_present ? "not present" : "rights violation",
               write ? "writing" : "reading", user ? "user" : "kernel");
       printf ("There is no crying in Pintos!\n");
-      kill (f);
+      if (user) kill(f); else thread_exit();
     }
 
     /* Successfully handled the page fault (either existing entry was loaded
