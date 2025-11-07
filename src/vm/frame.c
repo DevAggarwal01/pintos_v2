@@ -1,12 +1,13 @@
 #include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 #include "lib/kernel/bitmap.h"
 
 struct hash frame_table;         // hash table of all frames 
 struct list frame_clock_list;    // eviction policy is clock algorithm
 struct lock frame_lock;          // lock for frame table and clock list
 
-static struct list_elem *clock_hand;
+static struct list_elem *clock_hand; 
 
 
 unsigned frame_hash_func(struct hash_elem *e, void *aux) {
@@ -47,7 +48,7 @@ void *frame_alloc(void *user_vaddr, enum palloc_flags flags, struct sup_page *sp
     new_frame->kpage = kpage;
     new_frame->user_vaddr = user_vaddr;
     new_frame->spte = spte;
-    new_frame->pin = false;
+    new_frame->pin = true;
 
     lock_acquire(&frame_lock);
     hash_insert(&frame_table, &new_frame->hash_elem);
@@ -95,14 +96,26 @@ void frame_free(void* page_addr) {
 }
 
 struct frame *find_frame(void *kpage) {
+    bool held = lock_held_by_current_thread(&frame_lock);
+    if (!held) {    
+        lock_acquire(&frame_lock);
+    }
+
     struct frame f_find;
     f_find.kpage = kpage;
+
     struct hash_elem *he = hash_find(&frame_table, &f_find.hash_elem);
+    struct frame *res = NULL;
     if (he != NULL) {
-        return hash_entry(he, struct frame, hash_elem);
+        res = hash_entry(he, struct frame, hash_elem);
     }
-    return NULL;
+
+    if (!held) {
+        lock_release(&frame_lock);
+    }
+    return res;
 }
+
 /*
 NOTE: must be called with frame_lock acquired
 Returns: pointer to evicted frame, or NULL on failure
@@ -128,6 +141,7 @@ void *choose_evicted_frame(void) {
         }
         if (pagedir_is_accessed(f->owner->pagedir, f->user_vaddr)) {
             pagedir_set_accessed(f->owner->pagedir, f->user_vaddr, false);
+            clock_hand = list_next(clock_hand);
             // give second chance, skip this frame for now
             continue;
         } else {
@@ -142,50 +156,83 @@ void *choose_evicted_frame(void) {
 }
 
 
-void *frame_evict(void* frame_addr) {
-    // TODO implement clock algorithm to evict a frame
-    // for now, just return NULL to indicate failure
+void *frame_evict(void *frame_addr UNUSED) {
     lock_acquire(&frame_lock);
-    struct frame *victim_frame = choose_evicted_frame();
-    if(!victim_frame) {
+    struct frame *victim = choose_evicted_frame();
+    if (!victim) {
         lock_release(&frame_lock);
         return NULL;
     }
-    struct sup_page *spte = victim_frame->spte;
-    if(spte == NULL) {
-        // should not happen
-        lock_release(&frame_lock);
-        return NULL;
-    }
-    // if its been written to after loading, need to swap out since memory copy and file copy are not the same anymore
-    bool dirty = pagedir_is_dirty(victim_frame->owner->pagedir, victim_frame->user_vaddr);
-    // if there is no file backing, then need to swap out to save it somewhere
-    // frames that have a backup file and are not dirty do not need to be saved in swap, they can be discarded
-    if(dirty || spte->file == NULL) {
-        // swap out the page to disk
-        size_t swap_slot = swap_out(victim_frame->kpage);
+
+    /* mark pinned so nobody else will touch this page while we do I/O */
+    victim->pin = true;
+
+    /* Get spte pointer now (may be NULL). We compute dirty now too. */
+    struct sup_page *spte = victim->spte;
+    bool was_dirty = false;
+    if (victim->owner != NULL && victim->owner->pagedir != NULL)
+        was_dirty = pagedir_is_dirty(victim->owner->pagedir, victim->user_vaddr);
+
+    /* We'll do the actual disk I/O without holding frame_lock. */
+    lock_release(&frame_lock);
+
+    size_t swap_slot = BITMAP_ERROR;
+    if (spte != NULL && (was_dirty || spte->file == NULL || spte->from_swap)) {
+        swap_slot = swap_out(victim->kpage);
         if (swap_slot == BITMAP_ERROR) {
-            // swap out failed
+            /* swap failed: release pin and abort */
+            lock_acquire(&frame_lock);
+            victim->pin = false;
             lock_release(&frame_lock);
             return NULL;
         }
+    }
+
+    /* Re-acquire lock to finalize eviction */
+    lock_acquire(&frame_lock);
+
+    /* Re-validate victim is still in the frame table (not freed or replaced). */
+    struct frame *f_check = find_frame(victim->kpage);
+    if (f_check != victim) {
+        /* Something changed while we did I/O: undo or abort. */
+        if (swap_slot != BITMAP_ERROR) {
+            /* if we used a swap slot, mark it free */
+            lock_acquire(&swap_lock);
+            bitmap_set(swap_bitmap, swap_slot, false);
+            lock_release(&swap_lock);
+        }
+        /* if the frame still exists, clear pin; otherwise it's already gone */
+        if (f_check)
+            f_check->pin = false;
+        lock_release(&frame_lock);
+        return NULL;  
+    }
+
+    /* If we actually swapped, update spte */
+    if (spte != NULL && swap_slot != BITMAP_ERROR) {
         spte->swap_slot = swap_slot;
         spte->from_swap = true;
+    } else if (spte != NULL) {
+        /* no swap used; if file-backed and not dirty, we can just discard content */
     }
-    
-    // remove from page directory
-    pagedir_clear_page(victim_frame->owner->pagedir, victim_frame->user_vaddr);
-    spte->loaded = false;
 
-    // reuse the kernel page and free resources
-    void *reuse_page = victim_frame->kpage;
-    hash_delete(&frame_table, &victim_frame->hash_elem);
-    list_remove(&victim_frame->clock_elem);
-    free(victim_frame);
+    /* Remove mapping from page directory and mark spte not loaded. */
+    if (victim->owner && victim->owner->pagedir)
+        pagedir_clear_page(victim->owner->pagedir, victim->user_vaddr);
+    if (spte) spte->loaded = false;
 
+    void *reuse_kpage = victim->kpage;
+
+    /* Remove frame from bookkeeping and free frame struct (kpage is reused). */
+    hash_delete(&frame_table, &victim->hash_elem);
+    list_remove(&victim->clock_elem);
+    free(victim);
+
+    /* If list empty or clock hand pointed at removed element the choose code should handle it */
     lock_release(&frame_lock);
-    return reuse_page;
+    return reuse_kpage;
 }
+
 
 void frame_free_all(struct thread *t) {
     lock_acquire(&frame_lock);
@@ -221,7 +268,6 @@ void frame_free_all(struct thread *t) {
             /* Do NOT free the kpage here. pagedir_destroy (or other
                owner cleanup) will free kernel pages. Prevent double-free
                by clearing the pointer and freeing the frame struct. */
-            f->kpage = NULL;
             free(f);
         }
 
@@ -261,7 +307,7 @@ struct frame *frame_get(void *user_vaddr, enum palloc_flags flags) {
     list_push_back(&frame_clock_list, &new_frame->clock_elem);
     lock_release(&frame_lock);
 
-    return new_frame;
+    return new_frame; 
 }
 
 

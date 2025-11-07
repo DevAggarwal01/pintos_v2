@@ -161,12 +161,10 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
  */
 bool spt_load_page (struct sup_page *sp) {
     // get current thread and allocate a frame for the page
-    lock_acquire(&thread_current()->spt_lock);
     struct thread *t = thread_current();
     void *kpage = frame_alloc(sp->upage, PAL_USER, sp);
     if (kpage == NULL) {
         // frame allocation failed
-        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // don't let this page get evicted while loading
@@ -183,7 +181,6 @@ bool spt_load_page (struct sup_page *sp) {
         lock_release(&file_lock);
         if(bytes_read != (int) sp->read_bytes) {
             frame_free (kpage);
-            lock_release(&thread_current()->spt_lock);
             return false;
         }
         memset((uint8_t*) kpage + sp->read_bytes, 0, sp->zero_bytes);
@@ -195,7 +192,6 @@ bool spt_load_page (struct sup_page *sp) {
     if (!pagedir_set_page(t->pagedir, sp->upage, kpage, sp->writable)){
         // failed to map page, free frame and return false
         frame_free (kpage);
-        lock_release(&thread_current()->spt_lock);
         return false;
     }
     // update supplemental page table entry
@@ -203,6 +199,5 @@ bool spt_load_page (struct sup_page *sp) {
     sp->from_swap = false;
     frame_unpin(kpage);  // allow this frame to be evicted now that loading is over
     // return success
-    lock_release(&thread_current()->spt_lock);
     return true;
 }

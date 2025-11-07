@@ -1,7 +1,6 @@
-Jitter Value: 7
-Total Tests Passing: 80
-TESTING SCORE: E
-ALL TESTED PASSED -- PERFECT SCORE
+Jitter Value: 74
+Total Tests Passing: 92
+TESTING SCORE: A
 
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
@@ -9,16 +8,50 @@ SUMMARY BY TEST SET
 
 Test Set                                      Pts Max  % Ttl  % Max
 --------------------------------------------- --- --- ------ ------
-tests/userprog/Rubric.functionality           108/108  18.0%/ 18.0%
-tests/userprog/Rubric.robustness               88/ 88  14.0%/ 14.0%
-tests/userprog/no-vm/Rubric                     1/  1   3.0%/  3.0%
-tests/filesys/base/Rubric                      30/ 30  15.0%/ 15.0%
+tests/vm/Rubric.functionality                  27/ 33  19.6%/ 24.0%
+tests/vm/Rubric.robustness                     14/ 14   8.0%/  8.0%
+tests/userprog/Rubric.functionality           108/108   5.0%/  5.0%
+tests/userprog/Rubric.robustness               88/ 88   3.0%/  3.0%
+tests/filesys/base/Rubric                      30/ 30  10.0%/ 10.0%
 --------------------------------------------- --- --- ------ ------
-Total                                                  50.0%/ 50.0%
+Total                                                  45.6%/ 50.0%
 
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 SUMMARY OF INDIVIDUAL TESTS
+
+Functionality of virtual memory subsystem (tests/vm/Rubric.functionality):
+	- Test stack growth.
+	     3/ 3 tests/vm/pt-grow-stack
+	     3/ 3 tests/vm/pt-grow-stk-sc
+	     3/ 3 tests/vm/pt-big-stk-obj
+	     3/ 3 tests/vm/pt-grow-pusha
+
+	- Test paging behavior.
+	  ** 0/ 3 tests/vm/page-linear
+	  ** 0/ 3 tests/vm/page-parallel
+	     3/ 3 tests/vm/page-shuffle
+	     4/ 4 tests/vm/page-merge-seq
+	     4/ 4 tests/vm/page-merge-par
+	     4/ 4 tests/vm/page-merge-stk
+
+
+	- Section summary.
+	      8/ 10 tests passed
+	     27/ 33 points subtotal
+
+Robustness of virtual memory subsystem (tests/vm/Rubric.robustness):
+	- Test robustness of page table support.
+	     2/ 2 tests/vm/pt-bad-addr
+	     3/ 3 tests/vm/pt-bad-read
+	     2/ 2 tests/vm/pt-write-code
+	     3/ 3 tests/vm/pt-write-code2
+	     4/ 4 tests/vm/pt-grow-bad
+
+
+	- Section summary.
+	      5/  5 tests passed
+	     14/ 14 points subtotal
 
 Functionality of system calls (tests/userprog/Rubric.functionality):
 	- Test argument passing on Pintos command line.
@@ -134,14 +167,6 @@ Robustness of system calls (tests/userprog/Rubric.robustness):
 	     38/ 38 tests passed
 	     88/ 88 points subtotal
 
-Functionality of features that VM might break (tests/userprog/no-vm/Rubric):
-
-	     1/ 1 tests/userprog/no-vm/multi-oom
-
-	- Section summary.
-	      1/  1 tests passed
-	      1/  1 points subtotal
-
 Functionality of base file system (tests/filesys/base/Rubric):
 	- Test basic support for small files.
 	     1/ 1 tests/filesys/base/sm-create
@@ -166,3 +191,132 @@ Functionality of base file system (tests/filesys/base/Rubric):
 	     13/ 13 tests passed
 	     30/ 30 points subtotal
 
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+DETAILS OF tests/vm/page-linear FAILURE:
+
+run: byte 0 != 0x5a: FAILED
+
+OUTPUT FROM tests/vm/page-linear:
+
+Copying tests/vm/page-linear to scratch partition...
+squish-pty bochs -q -j 74
+
+PiLo hda1
+Loading............
+Kernel command line: -q -f extract run page-linear
+Pintos booting with 4,096 kB RAM...
+383 pages available in kernel pool.
+383 pages available in user pool.
+Calibrating timer...  119,200 loops/s.
+hda: 13,104 sectors (6 MB), model "BXHD00011", serial "Generic 1234"
+hda1: 198 sectors (99 kB), Pintos OS kernel (20)
+hda2: 4,096 sectors (2 MB), Pintos file system (21)
+hda3: 152 sectors (76 kB), Pintos scratch (22)
+hda4: 8,192 sectors (4 MB), Pintos swap (23)
+filesys: using hda2
+scratch: using hda3
+swap: using hda4
+Formatting file system...done.
+Boot complete.
+Extracting ustar archive from scratch device into file system...
+Putting 'page-linear' into the file system...
+Erasing ustar archive...
+Executing 'page-linear':
+(page-linear) begin
+(page-linear) initialize
+(page-linear) read pass
+(page-linear) read/modify/write pass one
+(page-linear) read/modify/write pass two
+(page-linear) read pass
+(page-linear) byte 0 != 0x5a: FAILED
+page-linear: exit(1)
+Execution of 'page-linear' complete.
+Timer: 44844 ticks
+Thread: 75 idle ticks, 442 kernel ticks, 44330 user ticks
+hda2 (filesys): 118 reads, 308 writes
+hda3 (scratch): 151 reads, 2 writes
+hda4 (swap): 12320 reads, 13400 writes
+Console: 1182 characters output
+Keyboard: 0 keys pressed
+Exception: 2065 page faults
+Powering off...
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+DETAILS OF tests/vm/page-parallel FAILURE:
+
+Kernel panic in run: PANIC at ../../threads/palloc.c:136 in palloc_free_multiple(): assertion `bitmap_all (pool->used_map, page_idx, page_cnt)' failed.
+Call stack: 0xc002892b 0xc002355b 0xc0023574 0xc002bba6 0xc002b35f 0xc002c8d2 0xc002ca4b 0xc0021ab5 0xc0021ce7 0x804a101
+Translation of call stack:
+In kernel.o:
+0xc002892b: debug_panic (.../../lib/kernel/debug.c:37)
+0xc002355b: palloc_free_page (..../../threads/palloc.c:141)
+0xc0023574: palloc_free_page (..../../threads/palloc.c:141)
+0xc002bba6: pagedir_destroy (.../../userprog/pagedir.c:42)
+0xc002b35f: process_exit (...../userprog/process.c:300)
+0xc002c8d2: system_exit (.../../userprog/syscall.c:42)
+0xc002ca4b: syscall_handler (...../userprog/syscall.c:241)
+0xc0021ab5: intr_handler (..../threads/interrupt.c:359)
+0xc0021ce7: intr_entry (threads/intr-stubs.o:?)
+In tests/vm/page-parallel:
+0x0804a101: chdir (.../../lib/user/syscall.c:98)
+Translations of user virtual addresses above are based on a guess at
+the binary to use.  If this guess is incorrect, then those
+translations will be misleading.
+
+OUTPUT FROM tests/vm/page-parallel:
+
+Copying tests/vm/page-parallel to scratch partition...
+Copying tests/vm/child-linear to scratch partition...
+squish-pty bochs -q -j 74
+
+PiLo hda1
+Loading............
+Kernel command line: -q -f extract run page-parallel
+Pintos booting with 4,096 kB RAM...
+383 pages available in kernel pool.
+383 pages available in user pool.
+Calibrating timer...  119,200 loops/s.
+hda: 13,104 sectors (6 MB), model "BXHD00011", serial "Generic 1234"
+hda1: 198 sectors (99 kB), Pintos OS kernel (20)
+hda2: 4,096 sectors (2 MB), Pintos file system (21)
+hda3: 293 sectors (146 kB), Pintos scratch (22)
+hda4: 8,192 sectors (4 MB), Pintos swap (23)
+filesys: using hda2
+scratch: using hda3
+swap: using hda4
+Formatting file system...done.
+Boot complete.
+Extracting ustar archive from scratch device into file system...
+Putting 'page-parallel' into the file system...
+Putting 'child-linear' into the file system...
+Erasing ustar archive...
+Executing 'page-parallel':
+(page-parallel) begin
+(page-parallel) exec "child-linear"
+(page-parallel) exec "child-linear"
+(page-parallel) exec "child-linear"
+(page-parallel) exec "child-linear"
+(page-parallel) wait for child 0
+child-linear: exit(66)
+(page-parallel) wait for child 1
+(child-linear) byte 964457 != 0: FAILED
+child-linear: exit(1)
+(page-parallel) wait for child 1: FAILED
+page-parallel: exit(1)
+Execution of 'page-parallel' complete.
+Timer: 83596 ticks
+Thread: 124 idle ticks, 773 kernel ticks, 82713 user ticks
+Kernel PANIC at ../../threads/palloc.c:136 in palloc_free_multiple(): assertion `bitmap_all (pool->used_map, page_idx, page_cnt)' failed.
+Call stack: 0xc002892b 0xc002355b 0xc0023574 0xc002bba6 0xc002b35f 0xc002c8d2 0xc002ca4b 0xc0021ab5 0xc0021ce7 0x804a101hda2 Kernel PANIC recursion at ../../userprog/pagedir.c:58 in lookup_page().
+(filesys): 290 reads, 592 writPage fault ates
+hda3 ( 0xccccccd0: not present scratch): 292 reaerror writinds, 2 writes
+hda4g page in kernel c (swap): 15896 reads, 21000 writes
+ontext.
+Console: 1793 characters outThere is no crying in Pput
+Keyboard: 0 kintos!
+eys pressed
+Exception: 3042 pInterrupt 0x0e (#PF Page-Faultage faults
+Powering Exception) at eip= off..
