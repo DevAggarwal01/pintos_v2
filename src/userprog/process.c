@@ -630,19 +630,14 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool setup_stack (const char *cmdline, void **esp) {
     // allocate a page for the stack
     uint8_t *kpage;
-    // kpage = palloc_get_page(PAL_USER | PAL_ZERO); // flags
     uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
         spt_insert_zero(&thread_current()->spt, upage);
     struct sup_page *spte = spt_find(&thread_current()->spt, upage);
     if (spte == NULL)
         return false;
-
-    // Step 2: Allocate frame (frame_alloc will put it in the frame table with f->spte == NULL)
-    kpage = frame_alloc(upage, PAL_USER | PAL_ZERO, spte);
+    kpage = frame_alloc(upage, PAL_USER, spte);
     if (kpage == NULL)
         return false;
-
-    // Step 3: Manually assign f->spte immediately after allocation
     struct frame *f = find_frame(kpage);
     if (f == NULL)
         return false;
