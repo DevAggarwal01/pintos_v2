@@ -18,10 +18,9 @@ struct lock file_lock;
 
 /**
  * Initializes the system call system by setting the system call interrupt gate
- * The method be called exactly once during kernel startup, before any user process.
+ * The method must be called exactly once during kernel startup, before user processes.
  */
-void syscall_init (void)
-{
+void syscall_init (void) {
     // initialize the syscall handler.
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
     // initialize the file lock
@@ -31,7 +30,7 @@ void syscall_init (void)
 /**
  * Exits the current process with the given status code.
  */
-void system_exit (int status){
+void system_exit (int status) {
     // get the current thread and set its exit code
     struct thread *t = thread_current();
     t->exit_code = status;
@@ -58,45 +57,48 @@ static uint8_t *addr_to_page(const void *useraddr) {
  * Copies data from user space to kernel space.
  * Returns true on success, false if any byte could not be accessed.
  */
-static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
+static bool copy_data(void *kernel_dst, const void *user_src, size_t size) {
     // create pointers for source and destination
-    const uint8_t *user_src = user_src_;
+    const uint8_t *user_ptr = user_src;
     uint8_t *kernel_ptr = kernel_dst;
-    uint8_t *end = user_src + size;
-
-    if (user_src == NULL || !is_user_vaddr(user_src) || !is_user_vaddr(end - 1))
+    uint8_t *end = user_ptr + size;
+    // validate the entire user memory range
+    if (user_ptr == NULL || !is_user_vaddr(user_ptr) || !is_user_vaddr(end - 1)) {
         return false;
-
-    /* Ensure every page touched by the copy is present.  For any page that
-       isn't currently mapped we attempt to load it via the supplemental
-       page table (spt).  This prevents the kernel from taking a page fault
-       while accessing user memory. */
-    for (void *page = pg_round_down(user_src); page < (void *)end; page = (uint8_t *)page + PGSIZE) {
-        /* If a mapping already exists in the page directory, fine. */
-        if (addr_to_page(page) != NULL)
+    }
+    // for all pages in the range, ensure they are present (load from swap if necessary)
+    for (void *page = pg_round_down(user_ptr); page < (void *)end; page = (uint8_t *)page + PGSIZE) {
+        // if page is already present, continue
+        if (addr_to_page(page) != NULL) {
             continue;
-
-        /* Otherwise, check supplemental-page table for an entry and try to load it. */
+        }
+        // page not present; try to load it from the supplemental page table
         struct thread *t = thread_current();
         struct sup_page *sp = spt_find(&t->spt, page);
         if (sp == NULL) {
+            // no spt entry; check if it's a stack growth
             uintptr_t fault_u = (uintptr_t) page;
             uintptr_t esp_u = (uintptr_t) t->esp;
             uintptr_t phys_base_u = (uintptr_t) PHYS_BASE;
             if (fault_u < phys_base_u && fault_u >= esp_u - 32) {
-                if (!spt_insert_zero(&t->spt, page))
+                // attempt to grow the stack by inserting a zeroed page
+                if (!spt_insert_zero(&t->spt, page)) {
                     return false;
+                }
                 sp = spt_find(&t->spt, page);
             }
-            if (sp == NULL) return false;
+            if (sp == NULL) {
+                // still no spt entry; invalid pointer
+                return false;
+            }
         }
+        // load the page into memory
         if (!spt_load_page(sp)) {
-            /* Failed to load the page (swap/file error etc.) */
             return false;
         }
     }
-    /* Now that pages are present, perform the copy. */
-    memcpy(kernel_dst, user_src, size);
+    // all pages validated and loaded; now safe to copy
+    memcpy(kernel_dst, user_ptr, size);
     // successfully copied all bytes
     return true;
 }
@@ -105,34 +107,34 @@ static bool copy_data(void *kernel_dst, const void *user_src_, size_t size) {
  * Copies a null-terminated string from user space to kernel space.
  * Returns pointer to kernel string on success, NULL on failure.
  */
-static bool copy_string(char *dst, const char *usrc)
-{
-    if (usrc == NULL || !is_user_vaddr(usrc))
+static bool copy_string(char *kernel_dst, const char *user_src) {
+    // check for null and that the address is in user address range
+    if (user_src == NULL || !is_user_vaddr(user_src)) {
         return false;
-    // 128 B limit for args
+    }
+    // then, copy byte by byte up to a reasonable limit (128 bytes)
     for (size_t i = 0; i < 128; i++) {
-        void *page = pg_round_down(usrc + i);
-
-        /* Make sure the page is present (load it if necessary). */
+        void *page = pg_round_down(user_src + i);
+        // ensure the page is present
         if (addr_to_page(page) == NULL) {
             struct sup_page *sp = spt_find(&thread_current()->spt, page);
             if (sp == NULL) {
-                /* No mapping and no spt entry -> invalid pointer. */
+                // no mapping and no spt entry, so invalid pointer
                 system_exit(-1);
             }
             if (!spt_load_page(sp)) {
-                /* Couldn't load backing page -> fatal */
+                // couldn't load backing page
                 system_exit(-1);
             }
         }
-
-        /* Now safe to access the byte without risking a kernel-mode page fault. */
-        char c = usrc[i];
-        dst[i] = c;
-        if (c == '\0')
+        // now safe to access the byte without risking a kernel-mode page fault
+        char c = user_src[i];
+        kernel_dst[i] = c;
+        if (c == '\0') {
+            // successfully copied the string
             return true;
-    } 
-    
+        }
+    }
     // no terminator within limit
     return false;
 }
@@ -208,11 +210,12 @@ void remove_fd(int fd) {
 
 static void syscall_handler (struct intr_frame *f UNUSED) {
     struct thread *cur = thread_current();
+    // save the user stack pointer for stack growth checks
     cur->esp = f->esp;
     // get the syscall number from the stack
     uint8_t *sp = f->esp;
     // check for null and that the stack pointer is in user address range
-    if (sp == NULL || !is_user_vaddr((const void *)sp)) {
+    if (sp == NULL || !is_user_vaddr(sp)) {
         system_exit(-1);
     }
     // read the syscall number by copying from user space to kernel space
@@ -220,13 +223,16 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
     if (!copy_data(&syscall_num, sp, sizeof(int))) {
         system_exit(-1);
     }
-
     // ALL SYSTEM CALLS HANDLED HERE
     switch (syscall_num) {
+        // CASE: SYS_HALT
+        // shuts down the system
         case SYS_HALT: {
             shutdown_power_off();
             break;
         }
+        // CASE: SYS_EXIT
+        // exits the current process with the given status code
         case SYS_EXIT: {
             int status;
             if (!copy_data(&status, sp + 4, sizeof(int))) {
@@ -235,26 +241,29 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             system_exit(status);
             break;
         }
+        // CASE: SYS_EXEC
+        // executes a new process
         case SYS_EXEC: {
+            // get the command line pointer and command line string from user stack
             const char *cmd_linePtr;
+            char cmd_line[128];
             if (!copy_data(&cmd_linePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
             }
             if (cmd_linePtr == NULL) {
                 system_exit(-1);
             }
-            // char *cmd_line = copy_string((char *)cmd_linePtr);
-            char cmd_line[128];
-            if(!copy_string(cmd_line, cmd_linePtr)) {
+            if (!copy_string(cmd_line, cmd_linePtr)) {
                 system_exit(-1);
             }
             if (cmd_line == NULL) {
                 system_exit(-1);
             }
             f->eax = process_execute(cmd_line);
-            // palloc_free_page(cmd_line);
             break;
         }
+        // CASE: SYS_WAIT
+        // waits for a child process to terminate and retrieves its exit code
         case SYS_WAIT: {
             tid_t tid;
             if (!copy_data(&tid, sp + 4, sizeof(tid_t))) {
@@ -264,9 +273,13 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             f->eax = process_wait(tid);
             break;
         }
+        // CASE: SYS_CREATE
+        // creates a new file with the given name and initial size
         case SYS_CREATE: {
+            // get the file name pointer, initial size and file name string from user stack
             const char *filePtr;
             unsigned initial_size;
+            char file[128];
             if (!copy_data(&filePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
             }
@@ -276,8 +289,6 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (!copy_data(&initial_size, sp + 8, sizeof(unsigned))) {
                 system_exit(-1);
             }
-            // char *file = copy_string((char *)filePtr);
-            char file[128];
             if(!copy_string(file, filePtr)) {
                 f->eax = false;
                 break;
@@ -285,119 +296,139 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (file == NULL) {
                 system_exit(-1);
             }
+            // check for empty file name
             if (file[0] == '\0') {
-                // palloc_free_page(file);
                 f->eax = false;
                 return;
             }
+            // create the file
             lock_acquire(&file_lock);
             f->eax = filesys_create(file, initial_size);
             lock_release(&file_lock);
-            // palloc_free_page(file);
             break;
         }
+        // CASE: SYS_REMOVE
+        // removes the file with the given name
         case SYS_REMOVE: {
+            // get the file name pointer and file name string from user stack
             const char *filePtr;
+            char file[128];
             if (!copy_data(&filePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
             }
             if (filePtr == NULL) {
                 system_exit(-1);
             }
-            // char *file = copy_string((char *)filePtr);
-            char file[128];
             if(!copy_string(file, filePtr)) {
                 system_exit(-1);
             }
             if (file == NULL) {
                 system_exit(-1);
             }
+            // check for empty file name
             if (file[0] == '\0') {
-                // palloc_free_page(file);
                 f->eax = false;
                 return;
             }
+            // remove the file
             lock_acquire(&file_lock);
             f->eax = filesys_remove(file);
             lock_release(&file_lock);
-            // palloc_free_page(file);
             break;
         }
+        // CASE: SYS_OPEN
+        // opens the file with the given name and returns its file descriptor
         case SYS_OPEN: {
+            // get the file name pointer and file name string from user stack
             const char *fileNamePtr;
+            char fileName[128];
             if (!copy_data(&fileNamePtr, sp + 4, sizeof(const char *))) {
                 system_exit(-1);
             }
             if (fileNamePtr == NULL) {
                 system_exit(-1);
             }
-            // char *fileName = copy_string((char *)fileNamePtr);
-            char fileName[128];
             if(!copy_string(fileName, fileNamePtr)) {
                 system_exit(-1);
             }
             if (fileName == NULL) {
                 system_exit(-1);
             }
+            // check for empty file name
             if (fileName[0] == '\0') {
-                // palloc_free_page(fileName);
                 f->eax = -1;
                 return;
             }
+            // open the file
             lock_acquire(&file_lock);
             struct file *file = filesys_open(fileName);
             lock_release(&file_lock);
+            // check if file opened successfully
             if (file == NULL) {
-                // palloc_free_page(fileName);
                 f->eax = -1;
                 break;
             }
+            // create a new file descriptor entry
             struct fd_entry *fd = create_fd(file);
             if (fd == NULL) {
                 // could not create fd entry, close file and return -1
                 f->eax = -1;
+                lock_acquire(&file_lock);
                 file_close(file);
-                // palloc_free_page(fileName);
+                lock_release(&file_lock);
                 break;
             }
             f->eax = fd->fd;
-            // palloc_free_page(fileName);
             break;
         }
+        // CASE: SYS_FILESIZE
+        // returns the size of the file with the given file descriptor
         case SYS_FILESIZE: {
             int fd;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
+            // find the fd entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
+            // get the file size
             lock_acquire(&file_lock);
             f->eax = file_length(fd_entry->f);
             lock_release(&file_lock);
             break;
         }
+        // CASE: SYS_READ
+        // reads from the file with the given file descriptor into the buffer
         case SYS_READ: {
+            // get the file descriptor, buffer pointer, and size from user stack
             int fd;
             void *buffer;
             unsigned size;
-            if (!copy_data(&fd, sp + 4, sizeof(int)) ||
-                !copy_data(&buffer, sp + 8, sizeof(void *)) ||
-                !copy_data(&size, sp + 12, sizeof(unsigned))) {
+            if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
-            }
-            if (size == 0) {
-                f->eax = 0;
-                break;
+            }  
+            if (!copy_data(&buffer, sp + 8, sizeof(void *))) {
+                system_exit(-1);
             }
             if (buffer == NULL) {
                 system_exit(-1);
             }
+            if (!copy_data(&size, sp + 12, sizeof(unsigned))) {
+                system_exit(-1);
+            }
+            // handle size 0 read
+            if (size == 0) {
+                f->eax = 0;
+                break;
+            }
+            // copy data into kernel buffer to validate user buffer
             if (!copy_data(buffer, buffer, size)) {
                 system_exit(-1);
             }
+            // handle stdin read
             if (fd == 0) {
                 for (unsigned i = 0; i < size; i++) {
                     ((char *)buffer)[i] = input_getc();
@@ -405,48 +436,63 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 f->eax = size;
                 break;
             }
+            // find the fd entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
+            // read from the file into the buffer
             lock_acquire(&file_lock);
             f->eax = file_read(fd_entry->f, buffer, size);
             lock_release(&file_lock);
             break;
         }
+        // CASE: SYS_WRITE
+        // writes to the file with the given file descriptor from the buffer
         case SYS_WRITE: {
+            // get the file descriptor, buffer pointer, and size from user stack
             int fd;
-            const void *buffer;
+            void *buffer;
             unsigned size;
-            if (!copy_data(&fd, sp + 4, sizeof(int)) ||
-                !copy_data(&buffer, sp + 8, sizeof(const void *)) ||
-                !copy_data(&size, sp + 12, sizeof(unsigned))) {
+            if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
-            }
-            if (size == 0) {
-                f->eax = 0;
-                break;
+            }  
+            if (!copy_data(&buffer, sp + 8, sizeof(void *))) {
+                system_exit(-1);
             }
             if (buffer == NULL) {
                 system_exit(-1);
             }
+            if (!copy_data(&size, sp + 12, sizeof(unsigned))) {
+                system_exit(-1);
+            }
+            // handle size 0 write
+            if (size == 0) {
+                f->eax = 0;
+                break;
+            }
+            // copy data into kernel buffer to validate user buffer
             if (!copy_data(buffer, buffer, size)) {
                 system_exit(-1);
             }
             if (fd == 1) {
+                // handle stdout write
                 putbuf(buffer, size);
                 f->eax = size;
                 break;
             } else if (fd == 0) {
+                // cannot write to stdin
                 f->eax = -1;
                 break;
             } else {
+                // find the fd entry
                 struct fd_entry *fd_entry = find_fd(fd);
                 if (fd_entry == NULL) {
                     f->eax = -1;
                     break;
                 }
+                // write to the file from the buffer
                 lock_acquire(&file_lock);
                 int written = 0;
                 while (written < (int)size) {
@@ -462,6 +508,8 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
                 break;
             }
         }
+        // CASE: SYS_SEEK
+        // sets the file position of the file with the given file descriptor
         case SYS_SEEK: {
             int fd;
             unsigned position;
@@ -471,40 +519,50 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             if (!copy_data(&position, sp + 8, sizeof(unsigned))) {
                 system_exit(-1);
             }
+            // find the fd entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 system_exit(-1);
             }
+            // set the file position
             lock_acquire(&file_lock);
             file_seek(fd_entry->f, position);
             lock_release(&file_lock);
             break;
         }
+        // CASE: SYS_TELL
+        // gets the current file position of the file with the given file descriptor
         case SYS_TELL: {
             int fd;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
+            // find the fd entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
+            // get the current file position
             lock_acquire(&file_lock);
             f->eax = file_tell(fd_entry->f);
             lock_release(&file_lock);
             break;
         }
+        // CASE: SYS_CLOSE
+        // closes the file with the given file descriptor
         case SYS_CLOSE: {
             int fd;
             if (!copy_data(&fd, sp + 4, sizeof(int))) {
                 system_exit(-1);
             }
+            // find the fd entry
             struct fd_entry *fd_entry = find_fd(fd);
             if (fd_entry == NULL) {
                 f->eax = -1;
                 break;
             }
+            // close the file and remove the fd entry
             lock_acquire(&file_lock);
             file_close(fd_entry->f);
             lock_release(&file_lock);
@@ -512,6 +570,7 @@ static void syscall_handler (struct intr_frame *f UNUSED) {
             break;
         }
         default:
+            // unknown syscall number; terminate the process
             system_exit(-1);
     }
 }
