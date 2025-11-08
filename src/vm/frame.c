@@ -205,6 +205,9 @@ void *frame_evict(void *frame_addr UNUSED) {
     if (spte != NULL && swap_slot != BITMAP_ERROR) {
         spte->swap_slot = swap_slot;
         spte->from_swap = true;
+        if (spte->file != NULL && was_dirty) {
+            spte->file = NULL;  // Treat as anonymous going forward
+        }
     } else if (spte != NULL) {
         /* no swap used; if file-backed and not dirty, we can just discard content */
     }
