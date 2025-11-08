@@ -180,8 +180,10 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
-  spt_init(&initial_thread->spt);
-  lock_init(&initial_thread->spt_lock);
+  // spt_init(&initial_thread->spt);
+  // lock_init(&initial_thread->spt_lock);
+  spt_init(&t->spt);
+  lock_init(&t->spt_lock);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -274,8 +276,10 @@ void thread_exit (void)
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
-  process_exit ();
   spt_destroy(&thread_current()->spt);
+  process_exit ();  
+  
+  
 #endif
 
   /* Remove thread from all threads list, set our status to dying,

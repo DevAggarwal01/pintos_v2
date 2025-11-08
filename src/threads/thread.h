@@ -118,6 +118,7 @@ struct thread
 
    struct fd_entry *fd_table[FD_MAX];      // file descriptor table. index is fd number
    struct file *exec_file;                 // deny writes to executable files
+   bool exiting;
 
 #ifdef USERPROG
   /* Owned by userprog/process.c. */

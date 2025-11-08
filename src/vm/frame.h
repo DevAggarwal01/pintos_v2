@@ -18,6 +18,7 @@ struct frame {
     struct hash_elem hash_elem;     // hash table element for frame table
     struct list_elem clock_elem;    // list element for clock algorithm
     bool pin;                       // don't evict during I/O
+    bool freed;
 };
 
 // initialize frame table and clock list

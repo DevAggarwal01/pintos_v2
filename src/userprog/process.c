@@ -234,6 +234,13 @@ int process_wait (tid_t child_tid) {
 void process_exit (void) {
     // get current thread and its page directory
     struct thread *cur = thread_current();
+    lock_acquire(&exit_lock);
+    if(cur->exiting) {
+        lock_release(&exit_lock);
+        return; // already exiting
+    }
+    cur->exiting = true;
+    lock_release(&exit_lock);
     uint32_t *pd;
     // record exit status in the corresponding child record, so parent can get it
     tid_t my_tid = thread_tid();

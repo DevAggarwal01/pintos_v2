@@ -16,6 +16,7 @@ static void syscall_handler (struct intr_frame *);
 // lock for file system operations
 struct lock file_lock;
 
+struct lock exit_lock;
 
 /**
  * Initializes the system call system by setting the system call interrupt gate
@@ -27,6 +28,7 @@ void syscall_init (void)
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
     // initialize the file lock
     lock_init(&file_lock);
+    lock_init(&exit_lock);
 }
 
 /**
@@ -35,10 +37,17 @@ void syscall_init (void)
 void system_exit (int status){
     // get the current thread and set its exit code
     struct thread *t = thread_current();
+    // lock_acquire(&exit_lock);
+    // if(t->exiting) {
+    //     lock_release(&exit_lock);
+    //     return; // already exiting
+    // }
+    // t->exiting = true;
+    // lock_release(&exit_lock);
     t->exit_code = status;
     // print exit message and terminate the thread
     printf("%s: exit(%d)\n", t->name, status);
-    process_exit();
+    // process_exit();
     thread_exit();
 }
 

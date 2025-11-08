@@ -69,15 +69,17 @@ size_t swap_out(void *frame_addr) {
     // find a free slot in the swap bitmap
     lock_acquire(&swap_lock);
     size_t free_index = bitmap_scan_and_flip(swap_bitmap, 0, 1, false);
-    lock_release(&swap_lock);
+    
     // if no free slot found, return error
     if (free_index == BITMAP_ERROR){
+        lock_release(&swap_lock);
         return BITMAP_ERROR;
     }
     // write each sector of the page into the swap block
     for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
         block_write(swap_block, free_index * SECTORS_PER_PAGE + i, (uint8_t *)frame_addr + i * BLOCK_SECTOR_SIZE);
     }
+    lock_release(&swap_lock);
     // return the index of the swap slot used
     return free_index;
 }
@@ -92,12 +94,13 @@ void swap_in(size_t sector, void *frame_addr) {
     // sanity checks
     ASSERT(swap_block != NULL);
     ASSERT(frame_addr != NULL);
+    lock_acquire(&swap_lock);
     // read each sector of the page from the swap block
     for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
         block_read(swap_block, sector * SECTORS_PER_PAGE + i, (uint8_t *)frame_addr + i * BLOCK_SECTOR_SIZE);
     }
     // free the swap slot after reading
-    lock_acquire(&swap_lock);
+    
     bitmap_set(swap_bitmap, sector, false);
     lock_release(&swap_lock);
 }

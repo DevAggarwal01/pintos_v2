@@ -12,14 +12,14 @@ static struct list_elem *clock_hand;
 
 unsigned frame_hash_func(struct hash_elem *e, void *aux) {
     struct frame *f = hash_entry(e, struct frame, hash_elem);
-    return hash_bytes(&f->kpage, sizeof(f->kpage));
+    return hash_bytes(&f->kpage, sizeof(f->kpage)); 
 }
 
 bool frame_less_func(struct hash_elem *a, struct hash_elem *b, void *aux) {
     struct frame *fa = hash_entry(a, struct frame, hash_elem);
     struct frame *fb = hash_entry(b, struct frame, hash_elem);
     return fa->kpage < fb->kpage;
-}
+} 
 
 void frame_init(void) {
     hash_init(&frame_table, frame_hash_func, frame_less_func, NULL);
@@ -205,7 +205,7 @@ void *frame_evict(void *frame_addr UNUSED) {
         if (f_check)
             f_check->pin = false;
         lock_release(&frame_lock);
-        return NULL;  
+        return NULL;
     }
 
     /* If we actually swapped, update spte */
@@ -231,6 +231,12 @@ void *frame_evict(void *frame_addr UNUSED) {
     /* If list empty or clock hand pointed at removed element the choose code should handle it */
     lock_release(&frame_lock);
     return reuse_kpage;
+}
+
+static void really_free_frame(struct frame *f) {
+    if (f->freed) return;
+    f->freed = true;
+    free(f);
 }
 
 
@@ -268,7 +274,8 @@ void frame_free_all(struct thread *t) {
             /* Do NOT free the kpage here. pagedir_destroy (or other
                owner cleanup) will free kernel pages. Prevent double-free
                by clearing the pointer and freeing the frame struct. */
-            free(f);
+            // free(f);
+            really_free_frame(f);
         }
 
         e = next;
