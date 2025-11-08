@@ -1,4 +1,4 @@
-Jitter Value: 105
+Jitter Value: 160
 Total Tests Passing: 91
 TESTING SCORE: A
 
@@ -201,7 +201,7 @@ run: byte 0 != 0x5a: FAILED
 OUTPUT FROM tests/vm/page-linear:
 
 Copying tests/vm/page-linear to scratch partition...
-squish-pty bochs -q -j 105
+squish-pty bochs -q -j 160
 
 PiLo hda1
 Loading............
@@ -209,7 +209,7 @@ Kernel command line: -q -f extract run page-linear
 Pintos booting with 4,096 kB RAM...
 383 pages available in kernel pool.
 383 pages available in user pool.
-Calibrating timer...  108,000 loops/s.
+Calibrating timer...  105,800 loops/s.
 hda: 13,104 sectors (6 MB), model "BXHD00011", serial "Generic 1234"
 hda1: 198 sectors (99 kB), Pintos OS kernel (20)
 hda2: 4,096 sectors (2 MB), Pintos file system (21)
@@ -233,31 +233,32 @@ Executing 'page-linear':
 (page-linear) byte 0 != 0x5a: FAILED
 page-linear: exit(1)
 Execution of 'page-linear' complete.
-Timer: 44990 ticks
-Thread: 81 idle ticks, 444 kernel ticks, 44473 user ticks
+Timer: 44618 ticks
+Thread: 63 idle ticks, 460 kernel ticks, 44103 user ticks
 hda2 (filesys): 118 reads, 308 writes
 hda3 (scratch): 151 reads, 2 writes
 hda4 (swap): 12320 reads, 13400 writes
 Console: 1182 characters output
 Keyboard: 0 keys pressed
 Exception: 2065 page faults
-Powering off..
+Powering off...
+
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 DETAILS OF tests/vm/page-parallel FAILURE:
 
-Kernel panic in run: PANIC at ../../threads/malloc.c:267 in block_to_arena(): assertion `a->magic == ARENA_MAGIC' failed.
-Call stack: 0xc002892b 0xc00236bb 0xc00239de 0xc002f8f7 0xc002b36a 0xc002142a 0xc002c91d 0xc002ca95 0xc0021ab5 0xc0021ce7 0x804a101
+Kernel panic in run: PANIC at ../../threads/palloc.c:136 in palloc_free_multiple(): assertion `bitmap_all (pool->used_map, page_idx, page_cnt)' failed.
+Call stack: 0xc002892b 0xc002355b 0xc0023574 0xc002bbe6 0xc002b39f 0xc002142a 0xc002c91e 0xc002ca92 0xc0021ab5 0xc0021ce7 0x804a101
 Translation of call stack:
 In kernel.o:
 0xc002892b: debug_panic (.../../lib/kernel/debug.c:37)
-0xc00236bb: block_to_arena (...c.c:270 (discriminator 3))
-0xc00239de: free (..../../threads/malloc.c:218)
-0xc002f8f7: frame_free_all (...uild/../../vm/frame.c:237)
-0xc002b36a: process_exit (...../userprog/process.c:301)
-0xc002142a: thread_exit (..../../threads/thread.c:286)
-0xc002c91d: copy_string (...../userprog/syscall.c:119)
-0xc002ca95: syscall_handler (...../userprog/syscall.c:246)
+0xc002355b: palloc_free_page (..../../threads/palloc.c:141)
+0xc0023574: palloc_free_page (..../../threads/palloc.c:141)
+0xc002bbe6: pagedir_destroy (.../../userprog/pagedir.c:42)
+0xc002b39f: process_exit (...../userprog/process.c:307)
+0xc002142a: thread_exit (..../../threads/thread.c:288)
+0xc002c91e: copy_string (...../userprog/syscall.c:119)
+0xc002ca92: syscall_handler (...../userprog/syscall.c:250)
 0xc0021ab5: intr_handler (..../threads/interrupt.c:359)
 0xc0021ce7: intr_entry (threads/intr-stubs.o:?)
 In tests/vm/page-parallel:
@@ -270,7 +271,7 @@ OUTPUT FROM tests/vm/page-parallel:
 
 Copying tests/vm/page-parallel to scratch partition...
 Copying tests/vm/child-linear to scratch partition...
-squish-pty bochs -q -j 105
+squish-pty bochs -q -j 160
 
 PiLo hda1
 Loading............
@@ -278,7 +279,7 @@ Kernel command line: -q -f extract run page-parallel
 Pintos booting with 4,096 kB RAM...
 383 pages available in kernel pool.
 383 pages available in user pool.
-Calibrating timer...  108,000 loops/s.
+Calibrating timer...  105,800 loops/s.
 hda: 13,104 sectors (6 MB), model "BXHD00011", serial "Generic 1234"
 hda1: 198 sectors (99 kB), Pintos OS kernel (20)
 hda2: 4,096 sectors (2 MB), Pintos file system (21)
@@ -305,91 +306,66 @@ child-linear: exit(66)
 child-linear: exit(66)
 (page-parallel) wait for child 1
 (page-parallel) wait for child 2
-child-linear: exit(66)
 (page-parallel) wait for child 3
+child-linear: exit(66)
 (page-parallel) end
 page-parallel: exit(0)
 Execution of 'page-parallel' complete.
-Timer: 85192 ticks
-Thread: 186 idle ticks, 850 kernel ticks, 84168 user ticks
+Timer: 85115 ticks
+Thread: 204 idle tKernel PANIC at ../../threads/palloc.c:136 in palloc_free_multiple(): assertion `bitmap_all (pool->used_map, page_idx, page_cnt)' failed.
+Call stack: 0xc002892b 0xc002355b 0xc0023574 0xc002bbe6 0xc002b39f 0xc002142a 0xc002c91e 0xc002ca92 0xc0021ab5 0xc0021ce7 0x804a101Pageicks faul, 805 kernel ticks, 84115 user ticks
 hda2 (filesys): 294 reads, 592 writes
-hda3 (scratch): 292 reads, 2 writes
-hda4 (swap): 16488 reads, 21368 writes
-Console: 1439 characters output
-Keyboard: 0 keys pressed
-Exception: 3112 page faKernel PANIC at ../../threads/malloc.c:267 in block_to_arena(): assertion `a->magic == ARENA_MAGIC' failed.
-Call stack: 0xc002892b 0xc00236bb 0xc00239de 0xc002f8f7 0xc002b36a 0xc002142a 0xc002c91d 0xc002ca95 0xc0021ab5 0xc0021ce7 0x804a101ults
-PoweringPage f off...
-Kernel PANIC recursion at ../../devices/intq.c:81 in wait().
-Page
+hda3 (scrt at 0xKernel PANIC recursion at ../../devices/intq.c:81 in wait().
+Page fault at 0xccccccccccc4: not preccd0: not present error wrisent error reading pagting page in kernel contexte in kernel context.
+.
+There is noThere is no crying in Pintos!
+ crying in Pintos!
+InterrInterrupt 0x0eupt 0x0e (#PF Page-Fault Exception (#PF Page-Fault Exceptio) at eip=0xn) at eip=0xc002c0028d9e
+ cr2=cccfa00
+ cr2=ccccccd0 errcccd0 error=00000002
+or=00000000
+ eax= eax=c010706c ebx=cbffff000 ebx=cccccccc e0107000 eccx=c0134bf0 edx=cccccccc
+x=cccccc esi=c013425c edi=c0134bf0cc edx=c010706c
+ esp=c0134bb8  esi=c0039f40ebp=c0134b78
+ edi=c010707c esp= cs=0008 ds=0010 es=0010 ss=ac00291f7 eb016
+Pagp=c000eb58
+ cs=000e fault at 0xcccccce0: n8 ds=0010 es=0010 ss=ot present error rea0031
+Page fault atding page in kernel context.
+ 0xccccccd8: not presThere is no crying in Pent error reading intos!
+Intepage in kernel context.
+There rrupt 0x0e (#PF Page-Fais no crying in Pintos!ult Exception) at eip=
+Interrupt 0x0e 0xc002e594
+ cr2=ccccc(#PF Page-Fault Exception) cd8 error=00000at eip=0xc002e4a000
+ eax=cc0
+ cr2=ccccccd8 error=00000000cccccc ebx=c0107
+ eax=ccccc06c ecx=0000000accc ebx=cccccccc ecx=000 edx=0000a edx=000cccccccc
+ es003f8
+ esi=000i=00000008 edi=c0134b30 esp=00008 edi=c000eae8 espc0134964 ebp=c013=00000031 ebp=4974
+ cs=0c000e95c
+008 ds=0010 es=0010 ss= cs=0008 ds=0010 es1f33
+Page fault a=0010 ss=0000
+Pagt 0xccccccd8: not present error reade fault at 0ing page in kernel context.
+xccccccd8: not prThere is no crying in Pintoesent error readis!
+Interrupt 0x0e (#PF ng page in kernel conPage-Fault Exception) at eiptext.
+There is no=0xc002e4a0
+ cr2= crying in Pintos!
+Inteccccccd8 error=0000000rrupt 0x0e (#PF PaPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPage fault at 0xccccccd8: not present error reading page in kerPiLo hda1
+Loading............
+Kernel command line: -q -f extract run page-parallel
+Pintos booting with 4,096 kB RAM...
+[...details of reboot(s) omitted...]
+
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 DETAILS OF tests/vm/page-merge-stk FAILURE:
 
-Test output failed to match any acceptable form.
-
-Acceptable output:
-  (page-merge-stk) begin
-  (page-merge-stk) init
-  (page-merge-stk) sort chunk 0
-  (page-merge-stk) sort chunk 1
-  (page-merge-stk) sort chunk 2
-  (page-merge-stk) sort chunk 3
-  (page-merge-stk) sort chunk 4
-  (page-merge-stk) sort chunk 5
-  (page-merge-stk) sort chunk 6
-  (page-merge-stk) sort chunk 7
-  (page-merge-stk) wait for child 0
-  (page-merge-stk) wait for child 1
-  (page-merge-stk) wait for child 2
-  (page-merge-stk) wait for child 3
-  (page-merge-stk) wait for child 4
-  (page-merge-stk) wait for child 5
-  (page-merge-stk) wait for child 6
-  (page-merge-stk) wait for child 7
-  (page-merge-stk) merge
-  (page-merge-stk) verify
-  (page-merge-stk) success, buf_idx=1,048,576
-  (page-merge-stk) end
-Differences in `diff -u' format:
-  (page-merge-stk) begin
-  (page-merge-stk) init
-  (page-merge-stk) sort chunk 0
-  (page-merge-stk) sort chunk 1
-  (page-merge-stk) sort chunk 2
-  (page-merge-stk) sort chunk 3
-  (page-merge-stk) sort chunk 4
-  (page-merge-stk) sort chunk 5
-  (page-merge-stk) sort chunk 6
-  (page-merge-stk) sort chunk 7
-  (page-merge-stk) wait for child 0
-  (page-merge-stk) wait for child 1
-  (page-merge-stk) wait for child 2
-  (page-merge-stk) wait for child 3
-  (page-merge-stk) wait for child 4
-  (page-merge-stk) wait for child 5
-  (page-merge-stk) wait for child 6
-  (page-merge-stk) wait for child 7
-  (page-merge-stk) merge
-- (page-merge-stk) verify
-- (page-merge-stk) success, buf_idx=1,048,576
-- (page-merge-stk) end
-+ Page fault at 0x8244000: not present error reading page in user context.
-+ There is no crying in Pintos!
-+ page-merge-stk: dying due to interrupt 0x0e (#PF Page-Fault Exception).
-+ Interrupt 0x0e (#PF Page-Fault Exception) at eip=0x804813f
-+  cr2=08244000 error=00000004
-+  eax=00000007 ebx=00000008 ecx=000000bf edx=00000000
-+  esi=0810b077 edi=08244000 esp=bfffff20 ebp=bfffff68
-+  cs=001b ds=0023 es=0023 ss=0023
-
-(Process exit codes are excluded for matching purposes.)
+run: TIMEOUT after 60 seconds of wall-clock time - load average: 3.24, 2.51, 1.88
 
 OUTPUT FROM tests/vm/page-merge-stk:
 
 Copying tests/vm/page-merge-stk to scratch partition...
 Copying tests/vm/child-qsort to scratch partition...
-squish-pty bochs -q -j 105
+squish-pty bochs -q -j 160
 
 PiLo hda1
 Loading............
@@ -397,7 +373,7 @@ Kernel command line: -q -f extract run page-merge-stk
 Pintos booting with 4,096 kB RAM...
 383 pages available in kernel pool.
 383 pages available in user pool.
-Calibrating timer...  108,000 loops/s.
+Calibrating timer...  105,800 loops/s.
 hda: 13,104 sectors (6 MB), model "BXHD00011", serial "Generic 1234"
 hda1: 198 sectors (99 kB), Pintos OS kernel (20)
 hda2: 4,096 sectors (2 MB), Pintos file system (21)
@@ -424,38 +400,6 @@ Executing 'page-merge-stk':
 (page-merge-stk) sort chunk 6
 (page-merge-stk) sort chunk 7
 (page-merge-stk) wait for child 0
-child-qsort: exit(72)
-child-qsort: exit(72)
-(page-merge-stk) wait for child 1
-child-qsort: exit(72)
-(page-merge-stk) wait for child 2
-(page-merge-stk) wait for child 3
-child-qsort: exit(72)
-child-qsort: exit(72)
-child-qsort: exit(72)
-(page-merge-stk) wait for child 4
-child-qsort: exit(72)
-(page-merge-stk) wait for child 5
-(page-merge-stk) wait for child 6
-child-qsort: exit(72)
-(page-merge-stk) wait for child 7
-(page-merge-stk) merge
-Page fault at 0x8244000: not present error reading page in user context.
-There is no crying in Pintos!
-page-merge-stk: dying due to interrupt 0x0e (#PF Page-Fault Exception).
-Interrupt 0x0e (#PF Page-Fault Exception) at eip=0x804813f
- cr2=08244000 error=00000004
- eax=00000007 ebx=00000008 ecx=000000bf edx=00000000
- esi=0810b077 edi=08244000 esp=bfffff20 ebp=bfffff68
- cs=001b ds=0023 es=0023 ss=0023
-page-merge-stk: exit(-1)
-Execution of 'page-merge-stk' complete.
-Timer: 71776 ticks
-Thread: 138 idle ticks, 835 kernel ticks, 70812 user ticks
-hda2 (filesys): 4868 reads, 6804 writes
-hda3 (scratch): 310 reads, 2 writes
-hda4 (swap): 1832 reads, 2440 writes
-Console: 2192 characters output
-Keyboard: 0 keys pressed
-Exception: 555 page faults
-Powering off...
+sent kill to process 2493830, waiting for it to end
+
+TIMEOUT after 60 seconds of wall-clock time - load average: 3.24, 2.51, 1.88

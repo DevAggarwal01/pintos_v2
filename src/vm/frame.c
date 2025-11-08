@@ -90,7 +90,8 @@ void frame_free(void* page_addr) {
         if (f->clock_elem.prev != NULL && f->clock_elem.next != NULL)
             list_remove(&f->clock_elem);
         palloc_free_page(f->kpage);
-        free(f);
+        // free(f);
+        really_free_frame(f);
     }
     lock_release(&frame_lock);
 }
@@ -226,14 +227,15 @@ void *frame_evict(void *frame_addr UNUSED) {
     /* Remove frame from bookkeeping and free frame struct (kpage is reused). */
     hash_delete(&frame_table, &victim->hash_elem);
     list_remove(&victim->clock_elem);
-    free(victim);
+    // free(victim);
+    really_free_frame(victim);
 
     /* If list empty or clock hand pointed at removed element the choose code should handle it */
     lock_release(&frame_lock);
     return reuse_kpage;
 }
 
-static void really_free_frame(struct frame *f) {
+void really_free_frame(struct frame *f) {
     if (f->freed) return;
     f->freed = true;
     free(f);

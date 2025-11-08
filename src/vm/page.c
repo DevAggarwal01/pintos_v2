@@ -173,6 +173,7 @@ bool spt_load_page (struct sup_page *sp) {
     if (sp->from_swap) {
         // page was swapped out, read from swap
         swap_in (sp->swap_slot, kpage);
+        pagedir_set_dirty(t->pagedir, sp->upage, true);
     } else if (sp->file != NULL) {
         // page is from executable, read data from this file
         lock_acquire(&file_lock);
@@ -181,7 +182,7 @@ bool spt_load_page (struct sup_page *sp) {
         lock_release(&file_lock);
         if(bytes_read != (int) sp->read_bytes) {
             frame_free (kpage);
-            return false;
+            return false;  
         }
         memset((uint8_t*) kpage + sp->read_bytes, 0, sp->zero_bytes);
     } else {
