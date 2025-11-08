@@ -180,8 +180,13 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
 
+  // --------------------
+  // THE FOLLOWING IS A MODIFICATION TO THE ORIGINAL CODE
   spt_init(&initial_thread->spt);
   lock_init(&initial_thread->spt_lock);
+  // END MODIFICATION
+  // --------------------
+
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -189,7 +194,11 @@ tid_t thread_create (const char *name, int priority, thread_func *function,
   kf->function = function;
   kf->aux = aux;
 
+  // --------------------
+  // THE FOLLOWING IS A MODIFICATION TO THE ORIGINAL CODE
   t->esp = (uint8_t *)kf;
+  // END MODIFICATION
+  // --------------------
 
   /* Stack frame for switch_entry(). */
   ef = alloc_frame (t, sizeof *ef);
@@ -438,11 +447,15 @@ static void init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
-  list_init(&t->children); // new, added to thread structure
+  // --------------------
+  // THE FOLLOWING IS A MODIFICATION TO THE ORIGINAL CODE
+  list_init(&t->children);
   t->parent = NULL;
-  t->child_record = NULL;      // if you use this pointer
+  t->child_record = NULL;
   t->exit_code = 0;
   t->exec_file = NULL;
+  // END MODIFICATION
+  // --------------------
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);

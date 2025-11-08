@@ -7,7 +7,6 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "filesys/filesys.h"
-#include "threads/synch.h"
 #include "filesys/file.h"
 #include <string.h>
 

@@ -120,13 +120,13 @@ int main (void)
   thread_start ();
   serial_init_queue ();
   timer_calibrate ();
-  frame_init ();
+  frame_init (); // FOR VM: initialize frame table
 
 #ifdef FILESYS
   /* Initialize file system. */
   ide_init ();
   locate_block_devices ();
-  swap_init();
+  swap_init(); // FOR VM: initialize swap subsystem
   filesys_init (format_filesys);
 #endif
 

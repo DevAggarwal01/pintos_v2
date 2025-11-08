@@ -194,13 +194,6 @@ void *frame_evict(void *frame_addr UNUSED) {
     /* Re-validate victim is still in the frame table (not freed or replaced). */
     struct frame *f_check = find_frame(victim->kpage);
     if (f_check != victim) {
-        /* Something changed while we did I/O: undo or abort. */
-        if (swap_slot != BITMAP_ERROR) {
-            /* if we used a swap slot, mark it free */
-            lock_acquire(&swap_lock);
-            bitmap_set(swap_bitmap, swap_slot, false);
-            lock_release(&swap_lock);
-        }
         /* if the frame still exists, clear pin; otherwise it's already gone */
         if (f_check)
             f_check->pin = false;

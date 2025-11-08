@@ -92,6 +92,8 @@ void swap_in(size_t sector, void *frame_addr) {
     // sanity checks
     ASSERT(swap_block != NULL);
     ASSERT(frame_addr != NULL);
+    ASSERT(sector != BITMAP_ERROR);
+    // printf("Swapping in from slot %zu\n", sector);
     // read each sector of the page from the swap block
     for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
         block_read(swap_block, sector * SECTORS_PER_PAGE + i, (uint8_t *)frame_addr + i * BLOCK_SECTOR_SIZE);

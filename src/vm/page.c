@@ -9,6 +9,7 @@
 #include <string.h>
 #include <round.h>
 #include "userprog/syscall.h"
+#include "lib/kernel/bitmap.h"
 
 /**
  * Hash function for supplemental page table entries.
@@ -41,7 +42,8 @@ void spt_init (struct hash *spt) {
 
 spt_destroy_entry(struct hash_elem *e, void *aux UNUSED) {
     struct sup_page *sp = hash_entry(e, struct sup_page, elem);
-    if (sp->from_swap) {
+    /* Free swap slot ONLY if the page is NOT loaded AND it still resides in swap */
+    if (!sp->loaded && sp->from_swap) {
         lock_acquire(&swap_lock);
         bitmap_set(swap_bitmap, sp->swap_slot, false);
         lock_release(&swap_lock);
@@ -169,11 +171,10 @@ bool spt_load_page (struct sup_page *sp) {
     }
     // don't let this page get evicted while loading
     frame_pin(kpage);
-    // load the page data
-    memset(kpage, 0, PGSIZE); 
     if (sp->from_swap) {
         // page was swapped out, read from swap
         swap_in (sp->swap_slot, kpage);
+        sp->swap_slot = BITMAP_ERROR;
     } else if (sp->file != NULL) {
         // page is from executable, read data from this file
         lock_acquire(&file_lock);
