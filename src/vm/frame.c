@@ -238,11 +238,11 @@ void frame_free_all(struct thread *t) {
     lock_acquire(&frame_lock);
 
     struct list_elem *e = list_begin(&frame_clock_list);
-    while (e != list_end(&frame_clock_list)) {
-        struct list_elem *next = list_next(e);
+    while (e != list_end(&frame_clock_list)) {  
+        struct list_elem *next = list_next(e); 
         struct frame *f = list_entry(e, struct frame, clock_elem);
 
-        if (f->owner == t) {
+        if (f->owner == t) { 
             /* If the clock hand points to this element, advance it to avoid
                leaving clock_hand pointing at a removed element. */
             if (clock_hand == e) {

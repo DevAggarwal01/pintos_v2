@@ -170,6 +170,7 @@ bool spt_load_page (struct sup_page *sp) {
     // don't let this page get evicted while loading
     frame_pin(kpage);
     // load the page data
+    memset(kpage, 0, PGSIZE); 
     if (sp->from_swap) {
         // page was swapped out, read from swap
         swap_in (sp->swap_slot, kpage);
