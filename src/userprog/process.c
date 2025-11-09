@@ -25,12 +25,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-// struct to pass information to the process_start function
-struct start_info {
-    char *fn_copy;              // copy of the file name (command line)
-    struct child_record *rec;   // child record for this process
-    struct thread *parent;      // parent thread pointer
-}; 
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -38,7 +32,7 @@ struct start_info {
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
 process_execute (const char *file_name) {
-     tid_t tid;
+    tid_t tid;
     // make a kernel copy of FILE_NAME for the child to use
     char *fn_copy = palloc_get_page (0);
     if (fn_copy == NULL) {
@@ -68,7 +62,7 @@ process_execute (const char *file_name) {
     rec->refcnt = 2;
     sema_init(&rec->start_sema, 0);
     sema_init(&rec->exit_sema, 0);
-    sema_init(&rec->load_sema, 0);
+    sema_init(&rec->load_sema, 0); 
     // register the record in global list and parent's child list
     struct thread *parent = thread_current();
     list_push_back(&parent->children, &rec->elem_child);
@@ -129,7 +123,6 @@ process_execute (const char *file_name) {
     sema_up(&rec->start_sema);
     // wait for child to finish loading so that exec() can return -1 on failure
     sema_down(&rec->load_sema);
-
     // if the child failed to load, clean up and return error (-1)
     if (!rec->loaded) {
         list_remove(&rec->elem_child);
@@ -245,10 +238,12 @@ void process_exit (void) {
             rec->exited = true;
             sema_up(&rec->exit_sema);  // signal ONCE here
         }
-        rec->refcnt--;                 // child drops its ref
+        // child drops its reference to the record
+        rec->refcnt--;
         bool free_now = (rec->refcnt == 0);
         if (free_now) palloc_free_page(rec);
-        cur->child_record = NULL;      // don’t touch after this point
+        // don’t touch child record after this point
+        cur->child_record = NULL;
     }
     // close executable file, allow writes
     if (cur->exec_file != NULL) {
@@ -258,13 +253,12 @@ void process_exit (void) {
             file_close(cur->exec_file);
             lock_release(&file_lock);
         } else {
-            // Avoid recursive lock acquire; just close directly
+            // avoid recursive lock acquire; just close directly
             file_allow_write(cur->exec_file);
             file_close(cur->exec_file);
         }
         cur->exec_file = NULL;
     }
-
     // close all open file descriptors by iterating over fd_table
     for (int i = 0; i < FD_MAX; i++) {
         struct fd_entry *fd_entry = cur->fd_table[i];
@@ -274,7 +268,7 @@ void process_exit (void) {
                 file_close(fd_entry->f);
                 lock_release(&file_lock);
             } else {
-                // Avoid recursive lock acquire; just close directly
+                // avoid recursive lock acquire; just close directly
                 file_close(fd_entry->f);
             }
             palloc_free_page(fd_entry);
@@ -293,11 +287,12 @@ void process_exit (void) {
             directory before destroying the process's page
             directory, or our active page directory will be one
             that's been freed (and cleared). */
+        // free all frames allocated for this process
+        frame_free_all(cur);
         cur->pagedir = NULL;
         pagedir_activate (NULL);
         pagedir_destroy (pd);
     }
-    frame_free_all(cur);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -505,13 +500,12 @@ bool load (const char *file_name, void (**eip) (void), void **esp) {
     success = true;
     done:
         /* We arrive here whether the load is successful or not. */
-        // file_close (file);
-        // return success;
-
         // [THIS IS A MODIFICATION MADE IN THIS METHOD FROM THE ORIGINAL CODE]
         // -----START MODIFICATION-----
         if (!success && file != NULL) {
+            lock_acquire(&file_lock);
             file_close(file);
+            lock_release(&file_lock);
             t->exec_file = NULL;
         }
         if (file_copy) {
@@ -587,38 +581,39 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
                           bool writable)
 {
-  ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
-  ASSERT (pg_ofs (upage) == 0);
-  ASSERT (ofs % PGSIZE == 0);
-
-  file_seek (file, ofs);
-  while (read_bytes > 0 || zero_bytes > 0)
-    {
-      /* Calculate how to fill this page.
-         We will read PAGE_READ_BYTES bytes from FILE
-         and zero the final PAGE_ZERO_BYTES bytes. */
-      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-      size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
-      // lazy loading
+    // sanity checks
+    ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+    ASSERT (pg_ofs (upage) == 0);
+    ASSERT (ofs % PGSIZE == 0);
+    // seek to the offset in the file
+    lock_acquire(&file_lock);   
+    file_seek (file, ofs);
+    lock_release(&file_lock);
+    while (read_bytes > 0 || zero_bytes > 0) {
+        // calculate how to fill this page
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;
+        // lazy loading
         bool ok;
         if (page_read_bytes > 0) {
-            /* File-backed page with some bytes from file */
-            ok = spt_insert_file(&thread_current()->spt, upage, file, ofs,
-                                page_read_bytes, page_zero_bytes, writable);
+            // insert a file-backed page
+            ok = spt_insert_file(&thread_current()->spt, upage, file, ofs, page_read_bytes, page_zero_bytes, writable);
         } else {
-            /* No bytes to read from file (page is all zeros) */
+            // no bytes to read from file (page is all zeros)
             ok = spt_insert_zero(&thread_current()->spt, upage);
         }
-        if (!ok)
+        if (!ok) {
+            // failed to insert page
             return false;
+        }
         // move forward
-      read_bytes -= page_read_bytes;
-      zero_bytes -= page_zero_bytes;
-      upage += PGSIZE;
-      ofs += page_read_bytes;
+        read_bytes -= page_read_bytes;
+        zero_bytes -= page_zero_bytes;
+        upage += PGSIZE;
+        ofs += page_read_bytes;
     }
-  return true;
+    // all pages loaded successfully
+    return true;
 }
 
 /**
@@ -630,18 +625,18 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool setup_stack (const char *cmdline, void **esp) {
     // allocate a page for the stack
     uint8_t *kpage;
-    uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-        spt_insert_zero(&thread_current()->spt, upage);
+    uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE; 
+    spt_insert_zero(&thread_current()->spt, upage);
     struct sup_page *spte = spt_find(&thread_current()->spt, upage);
-    if (spte == NULL)
+    if (spte == NULL) {
         return false;
+    }
+    // load the page into a frame
     kpage = frame_alloc(upage, PAL_USER, spte);
-    if (kpage == NULL)
+    if (kpage == NULL) {
         return false;
-    struct frame *f = find_frame(kpage);
-    if (f == NULL)
-        return false;
-    // Step 4: Install the mapping
+    }
+    // install the page into the process' page table
     if (!install_page(upage, kpage, true)) {
         frame_free(kpage);
         return false;

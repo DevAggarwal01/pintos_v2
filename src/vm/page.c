@@ -40,7 +40,7 @@ void spt_init (struct hash *spt) {
     hash_init (spt, sup_page_hash, sup_page_less, NULL);
 }
 
-spt_destroy_entry(struct hash_elem *e, void *aux UNUSED) {
+static void spt_destroy_entry(struct hash_elem *e, void *aux UNUSED) {
     struct sup_page *sp = hash_entry(e, struct sup_page, elem);
     /* Free swap slot ONLY if the page is NOT loaded AND it still resides in swap */
     if (!sp->loaded && sp->from_swap) {
@@ -162,44 +162,75 @@ bool spt_insert_zero (struct hash *spt, void *upage) {
  * Returns true on success, false on failure.
  */
 bool spt_load_page (struct sup_page *sp) {
-    // get current thread and allocate a frame for the page
-    struct thread *t = thread_current();
-    void *kpage = frame_alloc(sp->upage, PAL_USER, sp);
-    if (kpage == NULL) {
-        // frame allocation failed
-        return false;
+    bool already_had_lock = lock_held_by_current_thread(&thread_current()->spt_lock);
+    if (!already_had_lock) {
+       lock_acquire(&thread_current()->spt_lock);
     }
-    // don't let this page get evicted while loading
+    struct thread *t = thread_current();
+
+    /* NEW: If already mapped, keep SPT flag coherent and return. */
+    void *already = pagedir_get_page(t->pagedir, sp->upage);        // NEW
+    if (already != NULL) {                                          // NEW
+        sp->loaded = true;                                          // NEW
+        sp->from_swap = false;                                      // NEW
+        return true;                                                // NEW
+    }                                                               // NEW
+
+    /* Allocate a frame; back off and retry briefly if eviction unsafe. */
+    void *kpage = frame_alloc(sp->upage, PAL_USER, sp);             
+    if (kpage == NULL) {
+        thread_yield();                          // NEW
+        kpage = frame_alloc(sp->upage, PAL_USER, sp); 
+        if (kpage == NULL) {
+            if (!already_had_lock) {
+                lock_release(&thread_current()->spt_lock);
+            }
+            return false;
+        }
+    }
+
+    /* don't let this page get evicted while loading */
     frame_pin(kpage);
+
     if (sp->from_swap) {
-        // page was swapped out, read from swap
         swap_in (sp->swap_slot, kpage);
         sp->swap_slot = BITMAP_ERROR;
     } else if (sp->file != NULL) {
-        // page is from executable, read data from this file
         lock_acquire(&file_lock);
         file_seek(sp->file, sp->offset);
         int bytes_read = file_read(sp->file, kpage, sp->read_bytes);
         lock_release(&file_lock);
-        if(bytes_read != (int) sp->read_bytes) {
+        if (bytes_read != (int) sp->read_bytes) {
+            /* NEW: unpin before free on failure */
+            frame_unpin(kpage);                                     // NEW
             frame_free (kpage);
+            if (!already_had_lock) {
+                lock_release(&thread_current()->spt_lock);
+            }
             return false;
         }
         memset((uint8_t*) kpage + sp->read_bytes, 0, sp->zero_bytes);
     } else {
-        // page is zeroed
         memset(kpage, 0, PGSIZE);
     }
-    // add the page to the process's page directory
+
     if (!pagedir_set_page(t->pagedir, sp->upage, kpage, sp->writable)){
-        // failed to map page, free frame and return false
+        /* map failed: unpin then free */
+        frame_unpin(kpage);                                         // NEW
         frame_free (kpage);
+        if (!already_had_lock) {
+            lock_release(&thread_current()->spt_lock);
+        }
         return false;
     }
-    // update supplemental page table entry
+
     sp->loaded = true;
     sp->from_swap = false;
-    frame_unpin(kpage);  // allow this frame to be evicted now that loading is over
-    // return success
+
+    frame_unpin(kpage);
+    if (!already_had_lock) {
+        lock_release(&thread_current()->spt_lock);
+    }
     return true;
 }
+

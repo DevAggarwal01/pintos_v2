@@ -1,6 +1,7 @@
 #include "vm/frame.h"
 #include "vm/page.h"
 #include "vm/swap.h"
+#include "userprog/syscall.h"
 #include "lib/kernel/bitmap.h"
 
 struct hash frame_table;         // hash table of all frames 
@@ -122,39 +123,38 @@ Returns: pointer to evicted frame, or NULL on failure
 */ 
 void *choose_evicted_frame(void) {
     ASSERT(lock_held_by_current_thread(&frame_lock));
-    if (list_empty(&frame_clock_list)) {
+
+    if (list_empty(&frame_clock_list))
         return NULL;
-    }
-    // Initialize clock hand if needed
-    if (clock_hand == NULL || clock_hand == list_end(&frame_clock_list)) {
+
+    if (clock_hand == NULL || clock_hand == list_end(&frame_clock_list))
         clock_hand = list_begin(&frame_clock_list);
-    }
+
     while (true) {
-        if (clock_hand == list_end(&frame_clock_list)) {
+        if (clock_hand == list_end(&frame_clock_list))
             clock_hand = list_begin(&frame_clock_list);
-        }
+
         struct frame *f = list_entry(clock_hand, struct frame, clock_elem);
-        // skip pinned frames
+
+        /* Skip invalid or pinned frames */
         if (f->pin || f->owner == NULL || f->owner->pagedir == NULL) {
             clock_hand = list_next(clock_hand);
             continue;
         }
+
+        /* Second-chance logic: accessed recently? Clear and skip once */
         if (pagedir_is_accessed(f->owner->pagedir, f->user_vaddr)) {
             pagedir_set_accessed(f->owner->pagedir, f->user_vaddr, false);
             clock_hand = list_next(clock_hand);
-            // give second chance, skip this frame for now
             continue;
-        } else {
-            // Advance hand for next time
-            clock_hand = list_next(clock_hand);
-            return f;
         }
-        // clear accessed bit and advance
-        pagedir_set_accessed(f->owner->pagedir, f->user_vaddr, false);
+
+        /* Found a usable victim — advance clock and return it */
+        struct frame *victim = f;
         clock_hand = list_next(clock_hand);
+        return victim;
     }
 }
-
 
 void *frame_evict(void *frame_addr UNUSED) {
     lock_acquire(&frame_lock);
@@ -164,23 +164,30 @@ void *frame_evict(void *frame_addr UNUSED) {
         return NULL;
     }
 
-    /* mark pinned so nobody else will touch this page while we do I/O */
+    /* Mark pinned and get state BEFORE releasing lock */
     victim->pin = true;
-
-    /* Get spte pointer now (may be NULL). We compute dirty now too. */
     struct sup_page *spte = victim->spte;
+
     bool was_dirty = false;
-    if (victim->owner != NULL && victim->owner->pagedir != NULL)
+    if (victim->owner && victim->owner->pagedir)
         was_dirty = pagedir_is_dirty(victim->owner->pagedir, victim->user_vaddr);
 
-    /* We'll do the actual disk I/O without holding frame_lock. */
+    /* NEW: detect if we are inside file I/O (to avoid re-entrant block I/O). */
+    bool holding_file = lock_held_by_current_thread(&file_lock);  // NEW
+
     lock_release(&frame_lock);
 
     size_t swap_slot = BITMAP_ERROR;
     if (spte != NULL && (was_dirty || spte->file == NULL || spte->from_swap)) {
+        /* NEW: refuse to perform swap I/O while file_lock is held. */
+        if (holding_file) {                                        // NEW
+            lock_acquire(&frame_lock);                             // NEW
+            victim->pin = false;                                   // NEW
+            lock_release(&frame_lock);                             // NEW
+            return NULL;                                           // NEW
+        }
         swap_slot = swap_out(victim->kpage);
         if (swap_slot == BITMAP_ERROR) {
-            /* swap failed: release pin and abort */
             lock_acquire(&frame_lock);
             victim->pin = false;
             lock_release(&frame_lock);
@@ -188,46 +195,40 @@ void *frame_evict(void *frame_addr UNUSED) {
         }
     }
 
-    /* Re-acquire lock to finalize eviction */
     lock_acquire(&frame_lock);
 
-    /* Re-validate victim is still in the frame table (not freed or replaced). */
     struct frame *f_check = find_frame(victim->kpage);
     if (f_check != victim) {
-        /* if the frame still exists, clear pin; otherwise it's already gone */
-        if (f_check)
-            f_check->pin = false;
+        if (f_check) f_check->pin = false;
         lock_release(&frame_lock);
-        return NULL;  
+        return NULL;
     }
 
-    /* If we actually swapped, update spte */
     if (spte != NULL && swap_slot != BITMAP_ERROR) {
         spte->swap_slot = swap_slot;
         spte->from_swap = true;
-        if (spte->file != NULL && was_dirty) {
-            spte->file = NULL;  // Treat as anonymous going forward
-        }
+        spte->loaded = false;
+        if (spte->file != NULL && was_dirty)
+            spte->file = NULL;
     } else if (spte != NULL) {
-        /* no swap used; if file-backed and not dirty, we can just discard content */
+        /* Clean file-backed page: no swap */
     }
 
-    /* Remove mapping from page directory and mark spte not loaded. */
     if (victim->owner && victim->owner->pagedir)
         pagedir_clear_page(victim->owner->pagedir, victim->user_vaddr);
     if (spte) spte->loaded = false;
 
     void *reuse_kpage = victim->kpage;
 
-    /* Remove frame from bookkeeping and free frame struct (kpage is reused). */
     hash_delete(&frame_table, &victim->hash_elem);
     list_remove(&victim->clock_elem);
     free(victim);
 
-    /* If list empty or clock hand pointed at removed element the choose code should handle it */
     lock_release(&frame_lock);
     return reuse_kpage;
 }
+
+
 
 
 void frame_free_all(struct thread *t) {
@@ -261,9 +262,10 @@ void frame_free_all(struct thread *t) {
             hash_delete(&frame_table, &f->hash_elem);
             list_remove(&f->clock_elem);
 
-            /* Do NOT free the kpage here. pagedir_destroy (or other
-               owner cleanup) will free kernel pages. Prevent double-free
-               by clearing the pointer and freeing the frame struct. */
+            if (f->owner->pagedir != NULL) {
+                pagedir_clear_page(f->owner->pagedir, f->user_vaddr);
+            }
+            palloc_free_page(f->kpage);
             free(f);
         }
 

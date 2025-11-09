@@ -3,6 +3,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "vm/swap.h"
+#include "threads/palloc.h"
 
 /* 
  * --------------------------------------------------------------------------------------------
@@ -75,9 +76,15 @@ size_t swap_out(void *frame_addr) {
         return BITMAP_ERROR;
     }
     // write each sector of the page into the swap block
+    void *buffer = palloc_get_page(PAL_ASSERT);
+    memcpy(buffer, frame_addr, PGSIZE);
+
     for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
-        block_write(swap_block, free_index * SECTORS_PER_PAGE + i, (uint8_t *)frame_addr + i * BLOCK_SECTOR_SIZE);
+        block_write(swap_block, free_index * SECTORS_PER_PAGE + i,
+                    (uint8_t *)buffer + i * BLOCK_SECTOR_SIZE);
     }
+
+    palloc_free_page(buffer);
     // return the index of the swap slot used
     return free_index;
 }
@@ -95,9 +102,16 @@ void swap_in(size_t sector, void *frame_addr) {
     ASSERT(sector != BITMAP_ERROR);
     // printf("Swapping in from slot %zu\n", sector);
     // read each sector of the page from the swap block
-    for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
-        block_read(swap_block, sector * SECTORS_PER_PAGE + i, (uint8_t *)frame_addr + i * BLOCK_SECTOR_SIZE);
-    }
+    // Allocate temp kernel page
+void *buffer = palloc_get_page(PAL_ASSERT);
+
+for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
+    block_read(swap_block, sector * SECTORS_PER_PAGE + i,
+               (uint8_t *)buffer + i * BLOCK_SECTOR_SIZE);
+}
+
+memcpy(frame_addr, buffer, PGSIZE);
+palloc_free_page(buffer);
     // free the swap slot after reading
     lock_acquire(&swap_lock);
     bitmap_set(swap_bitmap, sector, false);

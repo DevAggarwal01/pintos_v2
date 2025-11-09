@@ -83,13 +83,12 @@ static void kill (struct intr_frame *f)
     {
       case SEL_UCSEG:
         /* User's code segment, so it's a user exception, as we
-           expected.  Kill the user process.  */
+           expected. Exit the process. */
         printf ("%s: dying due to interrupt %#04x (%s).\n", thread_name (),
                 f->vec_no, intr_name (f->vec_no));
         intr_dump_frame (f);
-      //   thread_exit ();
-      system_exit(-1);  // MODIFIED LINE: cleanly terminate the process
-      break; 
+        system_exit(-1);  // MODIFIED LINE: cleanly terminate the process
+        break; 
 
       case SEL_KCSEG:
         /* Kernel's code segment, which indicates a kernel bug.
@@ -147,43 +146,48 @@ static void page_fault (struct intr_frame *f)
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
 
-
-
-    /* THE FOLLOWING CODE IS A MODIFICATION MADE TO THE ORIGINAL CODE*/
-    // -----START MODIFICATION-----
-    /* If this is not a user-mode, not-present fault, die as before. */
-
+    // ------- OUR CODE BELOW THIS LINE -------
+    // if the faulting address is invalid (not in user address space), or present
     if (!is_user_vaddr(fault_addr) || fault_addr == NULL || !not_present) {
         if (!user && is_user_vaddr(fault_addr)) {
             // fault in user address space, even if kernel was executing (e.g., during syscall)
             system_exit(-1);
         }
-      printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
-              not_present ? "not present" : "rights violation",
-              write ? "writing" : "reading", user ? "user" : "kernel");
-      printf ("There is no crying in Pintos!\n");
-      kill (f);
+        // standard page fault kill
+        printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
+                not_present ? "not present" : "rights violation",
+                write ? "writing" : "reading", user ? "user" : "kernel");
+        printf ("There is no crying in Pintos!\n");
+        kill (f);
     }
-
-    /* Round fault address down to page boundary and look up SPT. */
+    // round down fault address and look up supplemental page table
     void *upage = pg_round_down(fault_addr);
     struct thread *t = thread_current();
     struct sup_page *sp = spt_find(&t->spt, upage);
-
-    /* If there's no supplemental-page entry, this might be stack growth.
-       Only allow stack growth for user-mode, not-present faults, and only
-       when fault_addr is within ~32 bytes below the user stack pointer. */
+    // if no SPT entry, check if we can grow the stack
     if (not_present && sp == NULL) {
-        // Only attempt stack growth if no existing SPT entry
         uintptr_t fault_u = (uintptr_t) fault_addr;
         uintptr_t esp_u = (uintptr_t) f->esp;
         uintptr_t phys_base_u = (uintptr_t) PHYS_BASE;
-        // Allow stack growth only if both addresses are in user space
-        if (fault_u < phys_base_u && esp_u < phys_base_u && fault_u >= esp_u - 32) {
+        uintptr_t max_stack_base = phys_base_u - 8 * 1024 * 1024;
+        // allow stack growth only if:
+        // 1. both addresses (fault and esp) are in user space
+        // 2. faulting address is within 32 bytes of esp
+        // 3. faulting address is above the maximum stack size limit (8 MB, in project spec)
+        if (fault_u < phys_base_u && 
+            esp_u < phys_base_u && 
+            fault_u >= esp_u - 32 && 
+            fault_u >= max_stack_base) {
             void *upage = pg_round_down(fault_addr);
-            struct sup_page *new_sp = malloc(sizeof *new_sp);
-            if (new_sp == NULL)
-                kill(f);
+            struct sup_page *new_sp = malloc(sizeof *new_sp); 
+            if (new_sp == NULL) {
+                // standard page fault kill
+                printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
+                    not_present ? "not present" : "rights violation",
+                    write ? "writing" : "reading", user ? "user" : "kernel");
+                printf ("There is no crying in Pintos!\n");
+                kill (f);
+            }
             new_sp->upage = upage;
             new_sp->writable = true;
             new_sp->loaded = false;
@@ -193,32 +197,25 @@ static void page_fault (struct intr_frame *f)
             new_sp->zero_bytes = PGSIZE;
             new_sp->from_swap = false;
             new_sp->swap_slot = 0;
-
+            // try to insert new SPT entry
             lock_acquire(&t->spt_lock);
             if (hash_insert(&t->spt, &new_sp->elem) == NULL) {
-                // Success
                 sp = new_sp;
             } else {
-                // Collision or error
                 free(new_sp);
             }
             lock_release(&t->spt_lock);
         }
     }
-
-
-    /* If we still don't have a supplemental page, or the access violates
-       the page's writability, or loading fails, terminate the user process. */
+    // if SPT entry is still NULL or page is not writable when writing, or loading page fails
     if (sp == NULL || (write && sp->writable == false) || !spt_load_page(sp)) {
-      printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
-              not_present ? "not present" : "rights violation",
-              write ? "writing" : "reading", user ? "user" : "kernel");
-      printf ("There is no crying in Pintos!\n");
-      if (user) kill(f); else thread_exit();
+        // standard page fault kill
+        printf ("Page fault at %p: %s error %s page in %s context.\n", fault_addr,
+                not_present ? "not present" : "rights violation",
+                write ? "writing" : "reading", user ? "user" : "kernel");
+        printf ("There is no crying in Pintos!\n");
+        if (user) kill(f); else thread_exit();
     }
-
-    /* Successfully handled the page fault (either existing entry was loaded
-       or we grew the stack and loaded a zero page). Return to user. */
+    // successful handling of page fault, no need to kill process
     return;
-    // -----END MODIFICATION-----
 }
