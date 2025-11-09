@@ -77,7 +77,7 @@ size_t swap_out(void *frame_addr) {
     }
     // create a temporary buffer to hold the page data
     // [THIS BUFFER IS NEEDED TO PREVENT STRANGE RACE CONDITIONS WITH BLOCK I/O]
-    void *buffer = palloc_get_page(PAL_ASSERT);
+    void *buffer = palloc_get_page(PAL_ASSERT); // we want the kernel to panic here if allocation fails
     memcpy(buffer, frame_addr, PGSIZE);
     // write the page to the swap block, sector by sector
     for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
@@ -102,11 +102,10 @@ void swap_in(size_t sector, void *frame_addr) {
     ASSERT(sector != BITMAP_ERROR);
     // create a temporary buffer to hold the page data
     // [THIS BUFFER IS NEEDED TO PREVENT STRANGE RACE CONDITIONS WITH BLOCK I/O]
-    void *buffer = palloc_get_page(PAL_ASSERT);
+    void *buffer = palloc_get_page(PAL_ASSERT); // we want the kernel to panic here if allocation fails
     // read page from swap slot sector by sector
     for (size_t i = 0; i < SECTORS_PER_PAGE; i++) {
-        block_read(swap_block, sector * SECTORS_PER_PAGE + i,
-                (uint8_t *)buffer + i * BLOCK_SECTOR_SIZE);
+        block_read(swap_block, sector * SECTORS_PER_PAGE + i, (uint8_t *)buffer + i * BLOCK_SECTOR_SIZE);
     }
     memcpy(frame_addr, buffer, PGSIZE);
     palloc_free_page(buffer);

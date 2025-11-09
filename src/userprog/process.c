@@ -17,7 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "threads/synch.h" // for semaphores and synchronization 
+#include "threads/synch.h"
 #include "syscall.h"
 #include "vm/frame.h"
 #include "vm/page.h"

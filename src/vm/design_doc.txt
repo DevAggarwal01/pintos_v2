@@ -1,0 +1,397 @@
+
+                   +---------------------------+
+                   |           CS 439          |
+                   | PROJECT 3: VIRTUAL MEMORY |
+                   |      DATA STRUCTURES      |
+                   |    AND DESIGN DOCUMENT    |
+                   +---------------------------+
+
+
+
+
+For this project, each group will need to submit a data structure and design
+milestone.  The questions in this design document should reflect the planned
+design of your project.  Your grade will reflect the quality of your answer in
+both clarity of communication and practicality of design.
+
+This design document will be completed and submitted as a group.  When you have
+completed your design submit it to the Canvas assignment Project 3 Data
+Structures and Design.
+
+We will return this milestone to you as quickly as possible so that you can get
+feedback on your design, but do not wait to begin your implementation. Please
+start your implementation as soon as you are finished designing your project.
+
+***Your submission must be a text file and each line must not extend past 80
+characters.  In addition, your submission must contain all of the original
+material and not exceed 12,500 characters.  The character count will be
+measured using the Linux command wc.  (Note that rtf files are NOT text files.)
+
+You may not use slip days on this portion of the project.
+
+
+
+---- Team Information  ----
+
+>> Fill your names, UT EIDs, CS logins, email addresses, and unique numbers:
+
+Name: Hrutvik Rao Palutla Venkata
+EID: hp22429
+CS login: hrutvikp
+Email: hrutvikp@cs.utexas.edu
+Unique Number: 54905
+
+Name: Dev Aggarwal
+EID: da34882
+CS login: dev4dev
+Email: dev4dev@cs.utexas.edu
+Unique Number: 54895
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission or notes for the
+>> TAs, please give them here.
+>>
+
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+>>
+
+
+>> Please paste a link to your GitLab repo below.
+>> https://github.com/DevAggarwal01/pintos_v2 
+
+
+
+                        PAGE TABLE MANAGEMENT
+                        =====================
+
+
+---- DATA STRUCTURES ----
+
+
+>> A1: Consider the supplemental page table. For this data structure, submit:
+>>
+>>    1) the C declarations of these data structures
+>>    2) a few bullets or sentences about each data structure describing:
+>>        a) how it is populated,
+>>        b) how it is accessed,
+>>        c) how it is destroyed,
+>>        d) the expected size of that data structure,
+>>	      e) how many of that data structure you expect to exist in your
+>>           system, and 
+>>        f) how many processes could potentially touch that data.
+>>
+
+struct hash spt; /* Supplemental page table */
+
+struct sup_page {
+    void *upage;             // user virtual address (page-aligned)
+    bool loaded;             // is page currently loaded in a frame?
+    bool writable;           // is the page writable?
+    struct hash_elem elem;   // hash table element
+
+    // file-backed page information 
+    // (file-backed basically means lazy that this page is from an executable file)
+    struct file *file;       // executable file (NULL if not file-backed).
+    off_t offset;            // offset in file to load from.
+    uint32_t read_bytes;     // bytes to read from file.
+    uint32_t zero_bytes;     // bytes to set to zero after file bytes.
+
+    // swap-backed page information 
+    // (swap-backed basically means page was swapped out to disk)
+    size_t swap_slot;        // swap slot index (if page is swapped out)
+    bool from_swap;          // true if page is currently in swap
+};
+
+// initialize supplemental page table
+void spt_init (struct hash *spt);
+// destroy supplemental page table and free all entries
+void spt_destroy (struct hash *spt);
+// insert a file-backed page entry
+bool spt_insert_file (struct hash *spt, void *upage, struct file *file, off_t offset, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
+// insert a zeroed page entry
+bool spt_insert_zero (struct hash *spt, void *upage);
+// find the supplemental page entry for user address (rounded down to page boundary)
+struct sup_page *spt_find (struct hash *spt, void *upage);
+// load the page into memory (from file or swap)
+bool spt_load_page (struct sup_page *sp);
+
+The supplemental page table is a hash table composed of sup_page entries accessed 
+via the struct hash_elem struct. The table belongs to the thread struct.
+
+a) How it's populated
+When process_execute() runs, then we implement lazy loading by inserting a file-backed
+page entry via spt_insert_file() which is called in load_segment(). Stack pages are also
+installed and registered in SPT as zeroed-pages via spt_insert_zero().
+
+b) How it's accessed
+When a page fault occurs, we find the corresponding supplemental page entry via spt_find()
+and then run spt_load_page() to allocate a frame, read the file, and map it to memory.
+
+c) How it's destroyed
+In thread_exit, the supplemental page table is destroyed via spt_destroy() after 
+process_exit() runs in order to free swap slots. 
+
+d) Expected size
+Each 4KB page is accompanied by a sup_page entry that is around 60 bytes (fields + padding).
+So the expected size of a supplemental page table for a process is approximately the
+# of pages x 60 bytes. 
+
+e) How many SPTs exist?
+There is 1 supplemental page table per process.
+
+f) How many processes can access a SPT?
+A supplemental page table can only be accessed by the thread it is owned by.
+---- ALGORITHMS ----
+
+
+>> A2: What data will be necessary when a process page faults in the 
+>> code segment? How will your implementation locate that necessary data?
+>>
+
+The data necessary to handle a page fault includes the pointer to the backed-file,
+the offset within the file to load a page, the number of bytes to read, the number of
+bytes to be zeroed, and whether or not the page is writable.
+
+The page fault handler rounds the fault virtual address down to the nearest page,
+and then calls spt_find(&t->spt, page) to retrieve the corresponding supplemental page entry.
+Now, we have access to the necessary metadata which can be used by spt_load_page() to 
+allocate a frame.
+
+>> A3: How will your code coordinate accessed and dirty bits between
+>> kernel and user virtual addresses that are aliases for the same
+>> frame, or alternatively how do you plan to avoid the issue?
+>>
+
+Each user page is mapped from the virtual address to the frame via pagedir_set_page().
+Whereas the user only has access to the virtual address, the kernel directly deals with
+the page's actual address (void *kpage). There is no separate supplemental page table entry
+created for the kernel's access to the page. In this way, we avoid aliases. 
+Also, evictor reads and clears page table accessed and dirty bits with the user VA.
+
+
+---- SYNCHRONIZATION ----
+
+
+>> A4: When two user processes both need a new frame at the same time,
+>> what race conditions are possible?  How will they be avoided?
+>>
+
+Possible race conditions:
+- Frame allocation: 2 threads concurrently insert into the global frame table or choose the same victim
+- Eviction: a frame that is being loaded in one process is chosen to be evicted by another process
+- Swap slot: 2 threads allocate or free the same swap slot
+
+Solutions:
+- There is a global frame_lock that protects the frame table, clock list, and eviction process
+- Frames are pinned during I/O (marked specially) to ensure that they will not be evicted
+- Swap table has a swap_lock
+
+
+
+                       PAGING TO AND FROM DISK
+                       =======================
+
+---- DATA STRUCTURES ----
+
+
+>> B1A: Consider the frame table. For this data structure, submit:
+>>
+>>    1) the C declarations of these data structures
+>>    2) a few bullets or sentences about each data structure describing:
+>>        a) how it is populated,
+>>        b) how it is accessed,
+>>        c) how it is destroyed,
+>>        d) the expected size of that data structure,
+>>	  e) how many of that data structure you expect to exist in your
+>>           system, and 
+>>        f) how many processes could potentially touch that data.
+>>
+
+
+
+extern struct hash frame_table;         // hash table of all frames 
+extern struct list frame_clock_list;    // eviction policy is clock algorithm
+extern struct lock frame_lock;          // lock for frame table and clock list
+
+    
+// structure to store frame information
+struct frame {
+    struct thread *owner;           // thread that owns this frame
+    void* kpage;                    // kernel page address
+    void* user_vaddr;               // user virtual address mapped to this frame
+    struct sup_page *spte;          // supplemental page table entry associated with this frame
+    struct hash_elem hash_elem;     // hash table element for frame table
+    struct list_elem clock_elem;    // list element for clock algorithm
+    bool pin;                       // don't evict during I/O
+};
+
+// initialize frame table and clock list
+void frame_init(void);
+// allocate a frame for a given user virtual address with specified flags
+void* frame_alloc(void* user_vaddr, enum palloc_flags flags, struct sup_page *spte);
+// evict a frame using the clock algorithm
+void* frame_evict(void);
+// free a given frame
+void frame_free(void* frame);
+// free all frames associated with a thread
+void frame_free_all(struct thread* t);
+// find a frame by its kernel page address
+struct frame *find_frame(void *kpage);
+// pin a frame to prevent eviction
+void frame_pin(void *kpage);
+// unpin a frame to allow eviction
+void frame_unpin(void *kpage);
+
+
+The frame table is a global hash table composed of frames accessed via the struct hash_elem struct.
+
+a) How it is populated?
+frame_alloc() is called from spt_load_page() to obtain a physical page of memory. frame_alloc()
+is essentially a wrapper for palloc_get_page() that also creates a struct frame and adds it
+to the clock_list.
+b) How it is accessed?
+A page's physical address is hashed in order to index frames into the frame table. 
+Therefore frame lookups are done using the find_frame(void *page) method that requires a page's address.
+c) How it is destroyed?
+Frames are destroyed at the end of process_exit() when frame_free_all() is called.
+The frame is removed from the hash table and clock_list, the frame struct is freed, and
+the physical page is freed as well.
+d) Expected size
+Each frame struct is about 60 bytes.
+e) How many frames exist in the system?
+The number of frames corresponds to the number of pages in the user page pool managed by palloc.
+max # of frames = (size of user pool) / PGSIZE
+f) How many process can access that data?
+Any process can access any frame within the frame table so long as the provide the right
+physical page address.
+
+
+>> B1B: Consider the swap table. For this data structure, submit:
+>>
+>>    1) the C declarations of these data structures
+>>    2) a few bullets or sentences about each data structure describing:
+>>        a) how it is populated,
+>>        b) how it is accessed,
+>>        c) how it is destroyed,
+>>        d) the expected size of that data structure,
+>>        e) how many of that data structure you expect to exist in your
+>>           system, and 
+>>        f) how many processes could potentially touch that data.
+>>
+
+extern struct bitmap *swap_bitmap;
+extern struct lock swap_lock;
+
+// initializes the swap system
+bool swap_init(void);
+// swaps out a page to disk
+size_t swap_out(void *frame_addr);
+// swaps in a page from disk into memory
+void swap_in(size_t sector, void *frame_addr); 
+
+a) How is it populated?
+swap_init() initializes the bitmap that keeps track of whether or not a slot is free.
+Then, swap_out() is used to bring in a page from the memory into the disk.
+
+b) How is it accessed?
+swap_out() and swap_in() are used to bring in a page from memory to disk
+and from disk to memory, respectively. These 2 swap functions make use of the block device.
+
+c) How is it destroyed?
+The slots are freed when swap_in() runs.
+
+d) Expected size
+Bitmap size in bytes is essentially # of swap slots / 8.
+
+e) How many exist?
+There is one global swap table.
+
+f) How many processes can access?
+Any process may trigger swap through the kernel code.
+
+---- ALGORITHMS ----
+
+
+>> B2: When a frame is required but none are free, some frame must be
+>> evicted.  Describe your algorithm for choosing a frame to evict.
+>>
+
+For context, all frames are in the frame_clock_list. When there are no free frames available, then 
+the choose_evicted_frame() makes use of the clock eviction algorithm. A clock hand searches
+through the list, skipping any frames that are pinned. If a frame's accessed bit is set,
+then it is cleared and the clock hand moves on. If a frame's access bit isn't set, then it is chosen
+to be evicted. 
+
+>> B3: When a process P obtains a frame that was previously used by a
+>> process Q, how will you adjust the page table (and any other data
+>> structures) to reflect that Q no longer has the frame?
+>>
+
+This process of adjusting the page table while reassigning the frames occurs during eviction.
+First, we remove process Q’s ownership by clearing its old supplemental page entry. Q's metadata 
+reflects whether the page was swapped out or discarded. The frame is then reassigned to process P,
+and we update its owner and virtual address fields. This is all done to make sure that Q cannot 
+access the data inside the reused frame.
+
+>> B4: Explain your heuristic for deciding whether or not page fault 
+>> for an invalid virtual address should cause the stack to be extended.
+>>
+
+For a not-present pagefault, if there is no supplemental page entry found then we allow stack growth only if:
+
+1. both addresses (fault and esp) are in user space
+2. faulting address is within 32 bytes of esp
+3. faulting address is above the maximum stack size limit (8 MB, in project spec)
+
+If these conditions are met, we create a zeroed SPT entry for the page and load it.
+Otherwise, the access is invalid so the process is terminated.
+
+Also, if SPT already exists then we attempt to load it.
+
+
+---- SYNCHRONIZATION ----
+
+
+>> B5: Explain the basics of how you plan to manage synchronization in your VM
+>> design.  In particular, explain how it will prevent deadlock. 
+>>
+We guard against race conditions by using locks such as frame_lock, swap_lock, spt_lock, etc.
+Additionally, we do frame pinning instead of locks for long I/O so that the wait is not too long.
+The code also avoids waiting for another lock while a lock has been acquired to prevent deadlocks.
+
+
+>> B6: A page fault in process P can cause another process Q's page
+>> to be evicted.  How will you ensure that Q cannot access or modify
+>> the page during the eviction process?  How will you avoid a race
+>> between P evicting Q's page and Q faulting the page back in?
+>>
+
+When process P evicts process Q's page, we first pin the victim and update Q's supplemental page table
+to prevent Q from accessing the page. Also, selection and removal only run after acquiring the 
+frame_lock to prevent race conditions.
+
+>> B7: Suppose a page fault in process P causes a page to be read from
+>> the filesystem or swap.  How will you ensure that a second process Q
+>> cannot interfere by, for example, attempting to evict a page while it is
+>> still being read in?
+>>
+
+While loading a page from file or swap, the frame is first pinned so no one can evict it 
+in the middle of a read. We also make use of the process-unique SPT lock to prevent simultaneous loads.
+
+>> B8: Explain how you handle access to paged-out pages that occur
+>> during system calls.  Will you use page faults to bring in pages (as
+>> in user programs), or will you have a mechanism for "locking" frames
+>> into physical memory, or will you use some other design?  If your method
+>> could result in potential deadlock, how will you prevent it?  
+>>
+
+During syscalls, we demand-page user buffers using copy_data and copy_string.
+They walk through the buffer range, and call spt_load_page() to retrieve each page.
+spt_load_page() pins the frame so the page can't be evicted while it is being copied.
+We perform the file operation under a file_lock after loading the user buffer. 
+We avoid eviction races by doing the paging process before entering the file_lock.

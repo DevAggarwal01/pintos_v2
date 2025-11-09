@@ -186,7 +186,7 @@ bool spt_load_page (struct sup_page *sp) {
     // allocate a frame for this page; retry once if allocation fails
     // [
     //   THIS PART OF THE CODE IS REQUIRED, DO NOT REMOVE. IF FRAME ALLOCATION FAILS,
-    //   WE YIELD THE CPU AND TRY AGAIN TO AVOID DEADLOCKS DURING HIGH MEMORY USAGE.
+    //   WE YIELD THE CPU AND TRY AGAIN TO AVOID PAGEFAULTS DURING HIGH MEMORY USAGE.
     //   THIS PART OF CODE IS PARTICULARLY IMPORTANT FOR PAGE-MERGE-STK.
     // ]
     void *kpage = frame_alloc(sp->upage, PAL_USER, sp);             

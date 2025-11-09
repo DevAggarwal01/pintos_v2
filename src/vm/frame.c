@@ -196,6 +196,7 @@ struct frame * choose_evicted_frame(void) {
     // if clock list is empty, return NULL
     if (list_empty(&frame_clock_list)) {
         clock_hand = NULL;
+        return NULL;
     }
     // initialize clock_hand if needed
     if (clock_hand == NULL || clock_hand == list_end(&frame_clock_list))
@@ -260,7 +261,7 @@ void *frame_evict(void) {
             victim->pin = false;
             lock_release(&frame_lock);
             return NULL;
-        }
+        } 
         // perform swap out
         swap_slot = swap_out(victim->kpage);
         if (swap_slot == BITMAP_ERROR) {
