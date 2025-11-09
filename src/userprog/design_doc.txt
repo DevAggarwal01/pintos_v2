@@ -376,24 +376,30 @@ the semester.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
->>
+
+The assignment was easy to write, hard to debug (especially with jitter). We personally
+will hate on the page-linear, page-merge-stk and page-parallel test cases for all eternity.
 
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
->>
+
+It was hard, but among the more interesting OS projects, we'd say.
 
 
 >> Is there some particular fact or hint we should give students in
 >> future semesters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
->>
+
+N/A
 
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future semesters or the remaining projects?
->>
+
+N/A
 
 
 >> Any other comments?
->>
+
+Glad it's over. 
