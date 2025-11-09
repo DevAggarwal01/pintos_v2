@@ -1,0 +1,16 @@
+Teammates: Dev Aggarwal, Hrutvik Rao Palutla Venkata
+
+We spent a lot of this project working together by pair programming, discussing design decisions, 
+and debugging late into the night. Early on, we spent significant time planning how the supplemental 
+page table, frame table, and swap system would interact before writing any major code.
+
+We implemented the VM system by developing in small increments and then rigorously testing as we went. 
+Much of our time was spent diagnosing tricky synchronization bugs, refining our eviction policy, and 
+making sure page faults and stack growth worked seamlessly. When something broke, we’d usually hop 
+on a call or meet up, walk through the flow step by step, and brainstorm fixes until it was stable.
+
+Overall, each of us took on tasks as needed, reviewing each other’s changes, and constantly testing 
+together. By the end, we had all components (supplemental page tables, frames, swap, and fault 
+handling) working cleanly.
+
+Total Hours Spent: ~16–18 hours each
