@@ -1,12 +1,12 @@
-#include "threads/thread.h"
 #include "kernel/hash.h"
 #include "kernel/list.h"
-#include "threads/palloc.h"
+#include "threads/thread.h"
 #include "threads/synch.h"
 
-extern struct hash frame_table;         // hash table of all frames 
-extern struct list frame_clock_list;    // eviction policy is clock algorithm
-extern struct lock frame_lock;          // lock for frame table and clock list
+
+extern struct hash frame_table;
+extern struct list frame_clock_list;
+extern struct lock frame_lock;
 
     
 // structure to store frame information
@@ -24,16 +24,15 @@ struct frame {
 void frame_init(void);
 // allocate a frame for a given user virtual address with specified flags
 void* frame_alloc(void* user_vaddr, enum palloc_flags flags, struct sup_page *spte);
+// evict a frame using the clock algorithm
+void* frame_evict(void);
 // free a given frame
 void frame_free(void* frame);
-// evict a frame using the clock algorithm
-void* frame_evict(void* frame);
 // free all frames associated with a thread
 void frame_free_all(struct thread* t);
-
+// find a frame by its kernel page address
 struct frame *find_frame(void *kpage);
-struct frame *frame_get(void *user_vaddr, enum palloc_flags flags);
-
-
+// pin a frame to prevent eviction
 void frame_pin(void *kpage);
+// unpin a frame to allow eviction
 void frame_unpin(void *kpage);

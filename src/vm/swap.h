@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-
 extern struct bitmap *swap_bitmap;
 extern struct lock swap_lock;
 

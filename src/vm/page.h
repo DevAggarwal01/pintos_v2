@@ -1,5 +1,5 @@
-#include <hash.h>
 #include "filesys/file.h"
+#include <hash.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -28,13 +28,7 @@ void spt_init (struct hash *spt);
 // destroy supplemental page table and free all entries
 void spt_destroy (struct hash *spt);
 // insert a file-backed page entry
-bool spt_insert_file (struct hash *spt, 
-                    void *upage, 
-                    struct file *file, 
-                    off_t offset, 
-                    uint32_t read_bytes, 
-                    uint32_t zero_bytes, 
-                    bool writable);
+bool spt_insert_file (struct hash *spt, void *upage, struct file *file, off_t offset, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
 // insert a zeroed page entry
 bool spt_insert_zero (struct hash *spt, void *upage);
 // find the supplemental page entry for user address (rounded down to page boundary)
